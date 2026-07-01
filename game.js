@@ -17,6 +17,13 @@ const DIFFICULTY_CONFIG = {
     meteorSpeed: 120,
     meteorRadiusMin: 14,
     meteorRadiusMax: 22,
+    music: {
+      drone: 82.41,
+      harmony: 123.47,
+      notes: [246.94, 277.18, 329.63, 369.99],
+      tempo: 900,
+      volume: 0.13,
+    },
   },
   hard: {
     label: "HARD",
@@ -31,6 +38,13 @@ const DIFFICULTY_CONFIG = {
     meteorSpeed: 220,
     meteorRadiusMin: 14,
     meteorRadiusMax: 22,
+    music: {
+      drone: 65.41,
+      harmony: 98.0,
+      notes: [196.0, 233.08, 261.63, 311.13, 392.0],
+      tempo: 560,
+      volume: 0.16,
+    },
   },
 };
 
@@ -59,6 +73,7 @@ const elements = {
   finalScore: document.getElementById("final-score"),
   bestScore: document.getElementById("best-score"),
   recordBanner: document.getElementById("record-banner"),
+  musicToggleButton: document.getElementById("music-toggle-button"),
   canvas: document.getElementById("game-canvas"),
   mobileButtons: Array.from(document.querySelectorAll(".control-button")),
 };
@@ -89,6 +104,9 @@ let meteorSpawnTimer = 0;
 let newRecord = false;
 let dragPointerId = null;
 let dragPoint = null;
+let musicEnabled = true;
+let audioContext = null;
+let bgmState = null;
 
 let player = null;
 let blackHole = null;
@@ -100,6 +118,7 @@ const dpadState = { up: false, down: false, left: false, right: false };
 
 function init() {
   bindUI();
+  updateMusicToggleButton();
   setDifficulty(selectedDifficulty);
   showScreen("title");
   renderIdleCanvas();
@@ -111,9 +130,11 @@ function bindUI() {
   });
 
   elements.startButton.addEventListener("click", () => startGame(selectedDifficulty));
+  elements.musicToggleButton.addEventListener("click", toggleMusic);
   elements.retryButton.addEventListener("click", () => startGame(selectedDifficulty));
   elements.backToTitleButton.addEventListener("click", () => {
     stopGameLoop();
+    stopBgm();
     renderIdleCanvas();
     showScreen("title");
   });
@@ -276,6 +297,7 @@ function startGame(difficulty) {
   showScreen("play");
 
   gameRunning = true;
+  startBgm();
   animationFrameId = requestAnimationFrame(gameLoop);
 }
 
@@ -285,6 +307,147 @@ function stopGameLoop() {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
   }
+}
+
+function toggleMusic() {
+  musicEnabled = !musicEnabled;
+  updateMusicToggleButton();
+
+  if (!musicEnabled) {
+    stopBgm();
+  } else if (gameRunning) {
+    startBgm();
+  }
+}
+
+function updateMusicToggleButton() {
+  elements.musicToggleButton.textContent = musicEnabled ? "音楽 ON" : "音楽 OFF";
+  elements.musicToggleButton.setAttribute("aria-pressed", String(musicEnabled));
+}
+
+function ensureAudioContext() {
+  if (audioContext) {
+    return audioContext;
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    musicEnabled = false;
+    updateMusicToggleButton();
+    return null;
+  }
+
+  audioContext = new AudioContextClass();
+  return audioContext;
+}
+
+function startBgm() {
+  if (!musicEnabled) {
+    return;
+  }
+
+  const context = ensureAudioContext();
+  if (!context) {
+    return;
+  }
+
+  stopBgm();
+  if (context.state === "suspended") {
+    context.resume();
+  }
+
+  const music = currentConfig.music;
+  const masterGain = context.createGain();
+  const droneGain = context.createGain();
+  const harmonyGain = context.createGain();
+  const filter = context.createBiquadFilter();
+  const droneOsc = context.createOscillator();
+  const harmonyOsc = context.createOscillator();
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(selectedDifficulty === "hard" ? 980 : 720, context.currentTime);
+  masterGain.gain.setValueAtTime(0.0001, context.currentTime);
+  masterGain.gain.linearRampToValueAtTime(music.volume, context.currentTime + 0.8);
+  droneGain.gain.setValueAtTime(0.42, context.currentTime);
+  harmonyGain.gain.setValueAtTime(0.18, context.currentTime);
+
+  droneOsc.type = "sine";
+  harmonyOsc.type = selectedDifficulty === "hard" ? "sawtooth" : "triangle";
+  droneOsc.frequency.setValueAtTime(music.drone, context.currentTime);
+  harmonyOsc.frequency.setValueAtTime(music.harmony, context.currentTime);
+
+  droneOsc.connect(droneGain);
+  harmonyOsc.connect(harmonyGain);
+  droneGain.connect(filter);
+  harmonyGain.connect(filter);
+  filter.connect(masterGain);
+  masterGain.connect(context.destination);
+
+  droneOsc.start();
+  harmonyOsc.start();
+
+  bgmState = {
+    masterGain,
+    oscillators: [droneOsc, harmonyOsc],
+    intervalId: null,
+    noteIndex: 0,
+  };
+
+  playBgmNote();
+  bgmState.intervalId = window.setInterval(playBgmNote, music.tempo);
+}
+
+function stopBgm() {
+  if (!bgmState || !audioContext) {
+    bgmState = null;
+    return;
+  }
+
+  const context = audioContext;
+  const state = bgmState;
+  const stopAt = context.currentTime + 0.35;
+
+  if (state.intervalId !== null) {
+    window.clearInterval(state.intervalId);
+  }
+
+  state.masterGain.gain.cancelScheduledValues(context.currentTime);
+  state.masterGain.gain.setValueAtTime(state.masterGain.gain.value, context.currentTime);
+  state.masterGain.gain.linearRampToValueAtTime(0.0001, stopAt);
+  state.oscillators.forEach((oscillator) => {
+    oscillator.stop(stopAt);
+  });
+
+  window.setTimeout(() => {
+    state.masterGain.disconnect();
+  }, 420);
+
+  bgmState = null;
+}
+
+function playBgmNote() {
+  if (!bgmState || !audioContext) {
+    return;
+  }
+
+  const context = audioContext;
+  const music = currentConfig.music;
+  const frequency = music.notes[bgmState.noteIndex % music.notes.length];
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+
+  oscillator.type = selectedDifficulty === "hard" ? "square" : "sine";
+  oscillator.frequency.setValueAtTime(frequency, context.currentTime);
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.linearRampToValueAtTime(selectedDifficulty === "hard" ? 0.07 : 0.045, context.currentTime + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.7);
+
+  oscillator.connect(gain);
+  gain.connect(bgmState.masterGain);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.74);
+
+  bgmState.noteIndex += 1;
 }
 
 function gameLoop(timestamp) {
@@ -440,6 +603,7 @@ function updateMeteors(dt) {
 
 function endGame() {
   stopGameLoop();
+  stopBgm();
 
   const previousBest = readHighScore(selectedDifficulty);
   const finalValue = Number(elapsedTime.toFixed(1));
