@@ -1,5 +1,23 @@
 'use strict';
 
+// ----- 画像アセット（スプライトと背景） -----
+const PLAYER_SPRITE_SOURCE = { x: 0, y: 0, width: 390, height: 700 };
+const PLAYER_SPRITE_DRAW = { width: 72, height: 126, centerYOffset: 6 };
+const PIG_METEOR_SPRITE_SOURCE = { x: 0, y: 0, width: 256, height: 256 };
+
+const playerSprite = new Image();
+playerSprite.src = "assets/romaco_player.png";
+
+const pigMeteorSprite = new Image();
+pigMeteorSprite.src = "assets/pig_meteor.png";
+
+const backgroundImages = {
+  easy: new Image(),
+  hard: new Image(),
+};
+backgroundImages.easy.src = "assets/blackhole_easy.jpg";
+backgroundImages.hard.src = "assets/blackhole_hard.jpg";
+
 /* =========================================================
  * ロマ子様のブラックホール・エスケープ
  * すべてのゲームパラメータとセリフはこの冒頭部に集約する
@@ -606,6 +624,7 @@ function draw() {
     ctx.translate(randRange(-3, 3), randRange(-3, 3));
   }
 
+  drawBackgroundImage();
   drawStarsBackground();
   drawBlackHole();
   drawStarsItems();
@@ -704,15 +723,62 @@ function drawStarsItems() {
 
 function drawMeteors() {
   for (const m of game.meteors) {
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-    ctx.fillStyle = '#9a8f85';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
-    ctx.fillStyle = '#b8ada0';
-    ctx.fill();
+    if (pigMeteorSprite.complete && pigMeteorSprite.naturalWidth > 0) {
+      drawPigMeteor(m);
+    } else {
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#9a8f85';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = '#b8ada0';
+      ctx.fill();
+    }
   }
+}
+
+function drawPigMeteor(meteor) {
+  const speedAngle = Math.atan2(meteor.vy, meteor.vx);
+  const drawSize = meteor.r * 3.2;
+
+  ctx.save();
+  ctx.translate(meteor.x, meteor.y);
+  ctx.rotate(speedAngle);
+
+  // トレイル
+  const trail = ctx.createLinearGradient(-drawSize * 1.05, 0, -drawSize * 0.15, 0);
+  trail.addColorStop(0, "rgba(255, 80, 80, 0)");
+  trail.addColorStop(0.45, "rgba(255, 127, 57, 0.32)");
+  trail.addColorStop(1, "rgba(255, 214, 102, 0.62)");
+  ctx.fillStyle = trail;
+  ctx.beginPath();
+  ctx.moveTo(-drawSize * 1.05, 0);
+  ctx.lineTo(-drawSize * 0.18, -meteor.r * 0.78);
+  ctx.lineTo(-drawSize * 0.04, 0);
+  ctx.lineTo(-drawSize * 0.18, meteor.r * 0.78);
+  ctx.closePath();
+  ctx.fill();
+
+  // 自転
+  const rotation = (meteor.vx + meteor.vy) * 0.01 * (performance.now() * 0.01);
+  ctx.rotate(rotation);
+
+  ctx.shadowColor = "rgba(0, 0, 0, 0.42)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 5;
+  ctx.drawImage(
+    pigMeteorSprite,
+    PIG_METEOR_SPRITE_SOURCE.x,
+    PIG_METEOR_SPRITE_SOURCE.y,
+    PIG_METEOR_SPRITE_SOURCE.width,
+    PIG_METEOR_SPRITE_SOURCE.height,
+    -drawSize / 2,
+    -drawSize / 2,
+    drawSize,
+    drawSize
+  );
+  ctx.restore();
 }
 
 function drawEffects() {
@@ -739,9 +805,39 @@ function drawDashTrail() {
 function drawPlayer() {
   const p = game.player;
   const scale = game.phase === 'dying' ? Math.max(game.death.scale ?? 1, 0) : 1;
-  const r = p.r * scale;
-  if (r <= 0.5) return;
+  if (scale <= 0.05) return;
 
+  if (playerSprite.complete && playerSprite.naturalWidth > 0) {
+    const drawWidth = PLAYER_SPRITE_DRAW.width * scale;
+    const drawHeight = PLAYER_SPRITE_DRAW.height * scale;
+    const dx = -drawWidth / 2;
+    const dy = -drawHeight / 2 - (PLAYER_SPRITE_DRAW.centerYOffset * scale);
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    if (game.phase === 'dying' && game.death) {
+      const progress = Math.min(game.death.t / DEATH_ANIM_DURATION, 1);
+      ctx.rotate(progress * Math.PI * 4);
+    }
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 14 * scale;
+    ctx.shadowOffsetY = 8 * scale;
+    ctx.drawImage(
+      playerSprite,
+      PLAYER_SPRITE_SOURCE.x,
+      PLAYER_SPRITE_SOURCE.y,
+      PLAYER_SPRITE_SOURCE.width,
+      PLAYER_SPRITE_SOURCE.height,
+      dx,
+      dy,
+      drawWidth,
+      drawHeight
+    );
+    ctx.restore();
+    return;
+  }
+
+  const r = p.r * scale;
   ctx.save();
   // 本体（ピンクの円＝ロマ子様プレースホルダー）
   ctx.beginPath();
@@ -839,3 +935,20 @@ document.getElementById('btn-title').addEventListener('click', () => {
 // 初期表示
 refreshTitleHighscores();
 showScreen('title');
+
+function drawBackgroundImage() {
+  const bg = backgroundImages[selectedLevel];
+  if (bg && bg.complete && bg.naturalWidth > 0) {
+    drawImageCover(bg, 0, 0, W, H);
+  }
+}
+
+function drawImageCover(image, x, y, width, height) {
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const sourceWidth = width / scale;
+  const sourceHeight = height / scale;
+  const sourceX = (image.naturalWidth - sourceWidth) / 2;
+  const sourceY = (image.naturalHeight - sourceHeight) / 2;
+
+  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+}
