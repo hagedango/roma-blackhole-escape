@@ -1,110 +1,75 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ロマ子様のブラックホール・エスケープ</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ロマ子様のブラックホール・エスケープ</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="app-shell">
-    <section id="screen-title" class="screen screen-active" aria-labelledby="title-heading">
-      <div class="panel hero-panel">
-        <p class="eyebrow">Cosmic Survival Mini Game</p>
-        <h1 id="title-heading">ロマ子様の<br>ブラックホール・エスケープ</h1>
-        <p class="lead">
-          ブラックホールの引力と隕石をかわして、
-          できるだけ長く生き延びよう。
-        </p>
+<div id="game-container">
 
-        <div class="difficulty-block">
-          <h2>難易度をえらぶ</h2>
-          <div class="difficulty-buttons" role="group" aria-label="難易度選択">
-            <button id="difficulty-easy" class="chip-button chip-active" type="button" data-difficulty="easy">
-              かんたん
-              <span>EASY</span>
-            </button>
-            <button id="difficulty-hard" class="chip-button" type="button" data-difficulty="hard">
-              むずかしい
-              <span>HARD</span>
-            </button>
-          </div>
-        </div>
+  <!-- タイトル画面 -->
+  <section id="screen-title" class="screen">
+    <h1 class="game-title">ロマ子様の<br>ブラックホール・エスケープ</h1>
+    <p class="subtitle">吸い込まれたら負けですわよ！</p>
 
-        <div class="info-grid">
-          <article class="info-card">
-            <h2>あそびかた</h2>
-            <p>矢印キー / WASD / 画面下の方向ボタン / 画面ドラッグで移動できます。</p>
-          </article>
-          <article class="info-card">
-            <h2>ハイスコア</h2>
-            <p id="title-highscore-label">EASY ベスト</p>
-            <p id="title-highscore-value" class="score-highlight">0.0 秒</p>
-          </article>
-        </div>
+    <div class="difficulty-select">
+      <button id="btn-easy" class="difficulty-btn selected" data-level="easy">かんたん<br><span>EASY</span></button>
+      <button id="btn-hard" class="difficulty-btn" data-level="hard">むずかしい<br><span>HARD</span></button>
+    </div>
 
-        <div class="title-actions">
-          <button id="start-button" class="primary-button" type="button">スタート</button>
-          <button id="music-toggle-button" class="secondary-button music-button" type="button" aria-pressed="true">音楽 ON</button>
-        </div>
+    <p class="howto">
+      矢印キー / WASD でロマ子様を動かして、ブラックホールと隕石を避けよう！<br>
+      スペースキーでダッシュ✨ スターのかけら⭐を集めるとボーナス！
+    </p>
+
+    <button id="btn-start" class="main-btn">スタート</button>
+
+    <div class="highscore-box">
+      <p>ハイスコア（EASY）：<span id="hs-easy">0</span></p>
+      <p>ハイスコア（HARD）：<span id="hs-hard">0</span></p>
+    </div>
+  </section>
+
+  <!-- プレイ画面 -->
+  <section id="screen-play" class="screen hidden">
+    <div id="hud">
+      <div id="hud-score">SCORE <span id="score-value">0</span></div>
+      <div id="hud-dash">
+        <span class="dash-label">DASH</span>
+        <div id="dash-gauge-outer"><div id="dash-gauge-inner"></div></div>
       </div>
-    </section>
+    </div>
+    <canvas id="game-canvas" width="800" height="600"></canvas>
 
-    <section id="screen-play" class="screen" aria-labelledby="play-heading">
-      <div class="panel play-panel">
-        <div class="play-header">
-          <div>
-            <p class="eyebrow">Now Playing</p>
-            <h2 id="play-heading">生きのびろ、ロマ子様</h2>
-          </div>
-          <div class="score-board">
-            <span id="difficulty-badge" class="difficulty-badge">EASY</span>
-            <p>Score <strong id="score-value">0.0</strong><span> sec</span></p>
-          </div>
-        </div>
-
-        <div class="canvas-frame">
-          <canvas id="game-canvas" width="800" height="600" aria-label="ゲーム画面"></canvas>
-          <div class="canvas-hint">ドラッグでも移動できます</div>
-        </div>
-
-        <div class="mobile-controls" aria-label="モバイル操作ボタン">
-          <button class="control-button control-up" type="button" data-direction="up" aria-label="上"></button>
-          <button class="control-button control-left" type="button" data-direction="left" aria-label="左"></button>
-          <button class="control-button control-right" type="button" data-direction="right" aria-label="右"></button>
-          <button class="control-button control-down" type="button" data-direction="down" aria-label="下"></button>
-          <div class="control-center" aria-hidden="true"></div>
-        </div>
+    <!-- スマホ用コントロール -->
+    <div id="touch-controls">
+      <div id="dpad">
+        <button class="dpad-btn" id="dpad-up" data-dir="up">▲</button>
+        <button class="dpad-btn" id="dpad-left" data-dir="left">◀</button>
+        <button class="dpad-btn" id="dpad-right" data-dir="right">▶</button>
+        <button class="dpad-btn" id="dpad-down" data-dir="down">▼</button>
       </div>
-    </section>
+      <button id="btn-dash-touch">DASH</button>
+    </div>
+  </section>
 
-    <section id="screen-gameover" class="screen" aria-labelledby="gameover-heading">
-      <div class="panel result-panel">
-        <p class="eyebrow">Mission Failed</p>
-        <h2 id="gameover-heading">GAME OVER</h2>
-        <p class="lead">ブラックホールからは逃げきれませんでした。</p>
+  <!-- ゲームオーバー画面 -->
+  <section id="screen-gameover" class="screen hidden">
+    <h2 class="gameover-title">GAME OVER</h2>
+    <p id="gameover-quote" class="gameover-quote"></p>
+    <div class="result-box">
+      <p class="result-score">スコア：<span id="final-score">0</span></p>
+      <p class="result-detail">生存 <span id="final-time">0</span>秒 ＋ かけら <span id="final-stars">0</span>個</p>
+      <p id="new-record" class="new-record hidden">✨ New Record! ✨</p>
+      <p class="result-highscore">ハイスコア：<span id="final-highscore">0</span></p>
+    </div>
+    <button id="btn-retry" class="main-btn">もう一度遊ぶ</button>
+    <button id="btn-title" class="sub-btn">タイトルへ戻る</button>
+  </section>
 
-        <div class="result-stats">
-          <div class="result-card">
-            <span>今回のスコア</span>
-            <strong id="final-score">0.0 秒</strong>
-          </div>
-          <div class="result-card">
-            <span>ハイスコア</span>
-            <strong id="best-score">0.0 秒</strong>
-          </div>
-        </div>
-
-        <p id="record-banner" class="record-banner" hidden>New Record!</p>
-
-        <div class="result-actions">
-          <button id="retry-button" class="primary-button" type="button">もう一度遊ぶ</button>
-          <button id="back-to-title-button" class="secondary-button" type="button">タイトルへ戻る</button>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <script src="game.js"></script>
+</div>
+<script src="game.js"></script>
 </body>
 </html>

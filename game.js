@@ -1,918 +1,841 @@
-const STORAGE_KEYS = {
-  easy: "romako_bh_highscore_easy",
-  hard: "romako_bh_highscore_hard",
-};
+'use strict';
 
-const DIFFICULTY_CONFIG = {
+/* =========================================================
+ * ロマ子様のブラックホール・エスケープ
+ * すべてのゲームパラメータとセリフはこの冒頭部に集約する
+ * ========================================================= */
+
+// ----- 難易度別パラメータ（設計図 2-10節） -----
+const DIFFICULTY_PARAMS = {
   easy: {
-    label: "EASY",
-    backgroundKey: "easy",
-    playerSpeed: 220,
-    playerRadius: 16,
-    bhInitialRadius: 30,
-    bhGrowthRate: 3,
-    bhGravityStrength: 15000,
-    bhGravityRamp: 0.018,
-    meteorSpawnInterval: 1.5,
-    meteorSpeed: 120,
-    meteorRadiusMin: 14,
-    meteorRadiusMax: 22,
-    music: {
-      drone: 82.41,
-      harmony: 123.47,
-      notes: [246.94, 277.18, 329.63, 369.99],
-      tempo: 900,
-      volume: 0.13,
-    },
+    PLAYER_SPEED: 220,
+    PLAYER_RADIUS: 16,
+    BH_INITIAL_RADIUS: 30,
+    BH_GROWTH_RATE: 3,
+    BH_GRAVITY_STRENGTH: 4000,
+    METEOR_SPAWN_INTERVAL: 1.5,
+    METEOR_SPEED: 120,
+    STAR_SPAWN_INTERVAL: 3,
+    STAR_MAX_COUNT: 3,
+    STAR_LIFETIME: 8,
+    STAR_RADIUS: 12,
+    STAR_BONUS: 5,
+    DASH_SPEED_MULTIPLIER: 3,
+    DASH_DURATION: 0.25,
+    DASH_COOLDOWN: 3,
+    SURGE_INTERVAL: 12,
+    SURGE_WARNING: 2,
+    SURGE_DURATION: 2,
+    SURGE_MULTIPLIER: 2.5,
   },
   hard: {
-    label: "HARD",
-    backgroundKey: "hard",
-    playerSpeed: 200,
-    playerRadius: 16,
-    bhInitialRadius: 40,
-    bhGrowthRate: 6,
-    bhGravityStrength: 42000,
-    bhGravityRamp: 0.045,
-    meteorSpawnInterval: 0.7,
-    meteorSpeed: 220,
-    meteorRadiusMin: 14,
-    meteorRadiusMax: 22,
-    music: {
-      drone: 65.41,
-      harmony: 98.0,
-      notes: [196.0, 233.08, 261.63, 311.13, 392.0],
-      tempo: 560,
-      volume: 0.16,
-    },
+    PLAYER_SPEED: 200,
+    PLAYER_RADIUS: 16,
+    BH_INITIAL_RADIUS: 40,
+    BH_GROWTH_RATE: 6,
+    BH_GRAVITY_STRENGTH: 8000,
+    METEOR_SPAWN_INTERVAL: 0.7,
+    METEOR_SPEED: 220,
+    STAR_SPAWN_INTERVAL: 2.5,
+    STAR_MAX_COUNT: 3,
+    STAR_LIFETIME: 6,
+    STAR_RADIUS: 12,
+    STAR_BONUS: 8,
+    DASH_SPEED_MULTIPLIER: 3,
+    DASH_DURATION: 0.25,
+    DASH_COOLDOWN: 4,
+    SURGE_INTERVAL: 8,
+    SURGE_WARNING: 1.5,
+    SURGE_DURATION: 2.5,
+    SURGE_MULTIPLIER: 3,
   },
 };
 
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
-const MAX_DT = 0.05;
-const STAR_COUNT = 72;
-const PLAYER_SPRITE_SOURCE = { x: 0, y: 0, width: 390, height: 700 };
-const PLAYER_SPRITE_DRAW = { width: 72, height: 126, centerYOffset: 6 };
-const PIG_METEOR_SPRITE_SOURCE = { x: 0, y: 0, width: 256, height: 256 };
+const METEOR_RADIUS_MIN = 10;
+const METEOR_RADIUS_MAX = 18;
+const DEATH_ANIM_DURATION = 1.5; // 吸い込まれ演出の長さ（秒）
+const BUBBLE_DURATION = 2.0;     // 吹き出し表示時間（秒）
+const DANGER_COOLDOWN = 5.0;     // 危険接近セリフの再発動制限（秒）
+const DANGER_DISTANCE = 80;      // BH表面からこの距離未満で危険接近（px）
 
-const elements = {
-  screens: {
-    title: document.getElementById("screen-title"),
-    play: document.getElementById("screen-play"),
-    gameover: document.getElementById("screen-gameover"),
-  },
-  difficultyButtons: Array.from(document.querySelectorAll("[data-difficulty]")),
-  startButton: document.getElementById("start-button"),
-  retryButton: document.getElementById("retry-button"),
-  backToTitleButton: document.getElementById("back-to-title-button"),
-  titleHighscoreLabel: document.getElementById("title-highscore-label"),
-  titleHighscoreValue: document.getElementById("title-highscore-value"),
-  difficultyBadge: document.getElementById("difficulty-badge"),
-  scoreValue: document.getElementById("score-value"),
-  finalScore: document.getElementById("final-score"),
-  bestScore: document.getElementById("best-score"),
-  recordBanner: document.getElementById("record-banner"),
-  musicToggleButton: document.getElementById("music-toggle-button"),
-  canvas: document.getElementById("game-canvas"),
-  mobileButtons: Array.from(document.querySelectorAll(".control-button")),
+// ----- ロマ子様セリフ集（設計図 2-7節。コミュニティで自由に差し替えてOK！） -----
+const QUOTES = {
+  danger: [
+    'ちょっ、引っ張らないでくださる!?',
+    '吸わないでちょうだい！',
+  ],
+  collect: [
+    'いただきですわ✨',
+    '当然の報酬ですわね',
+  ],
+  dash: [
+    '失礼しますわよ！',
+    'ロマ子様、緊急回避！',
+  ],
+  surgeWarning: [
+    'な、なんか嫌な予感がしますわ…',
+    '来ますわよ…！',
+  ],
+  survive: [
+    'まだまだ余裕ですわ',
+    '宇宙もわたくしの前ではこの程度',
+  ],
+  gameover: [
+    '覚えてらっしゃい…！',
+    'こ、今回は引き分けですわ…',
+  ],
 };
 
-const ctx = elements.canvas.getContext("2d");
-const playerSprite = new Image();
-playerSprite.src = "assets/romaco_player.png";
-playerSprite.addEventListener("load", () => {
-  if (!gameRunning) {
-    renderIdleCanvas();
+/* =========================================================
+ * DOM要素・キャンバス
+ * ========================================================= */
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width;
+const H = canvas.height;
+
+const screens = {
+  title: document.getElementById('screen-title'),
+  play: document.getElementById('screen-play'),
+  gameover: document.getElementById('screen-gameover'),
+};
+
+const scoreValueEl = document.getElementById('score-value');
+const dashGaugeEl = document.getElementById('dash-gauge-inner');
+
+/* =========================================================
+ * 全体の状態
+ * ========================================================= */
+let selectedLevel = 'easy';
+let P = DIFFICULTY_PARAMS.easy; // 現在の難易度パラメータ
+let animFrameId = null;
+let lastTime = 0;
+
+const game = {}; // ゲーム中の状態はすべてこの中（initGameで初期化）
+
+/* =========================================================
+ * 画面切り替え
+ * ========================================================= */
+function showScreen(name) {
+  Object.entries(screens).forEach(([key, el]) => {
+    el.classList.toggle('hidden', key !== name);
+  });
+}
+
+/* =========================================================
+ * ハイスコア（localStorage、難易度別）
+ * ========================================================= */
+function highscoreKey(level) {
+  return 'romako_bh_highscore_' + level;
+}
+
+function loadHighscore(level) {
+  const v = Number(localStorage.getItem(highscoreKey(level)));
+  return Number.isFinite(v) ? v : 0;
+}
+
+function saveHighscore(level, score) {
+  localStorage.setItem(highscoreKey(level), String(score));
+}
+
+function refreshTitleHighscores() {
+  document.getElementById('hs-easy').textContent = loadHighscore('easy');
+  document.getElementById('hs-hard').textContent = loadHighscore('hard');
+}
+
+/* =========================================================
+ * 入力（キーボード＋タッチ）
+ * ========================================================= */
+const input = { up: false, down: false, left: false, right: false };
+let dashRequested = false;
+
+const KEY_MAP = {
+  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+  w: 'up', s: 'down', a: 'left', d: 'right',
+  W: 'up', S: 'down', A: 'left', D: 'right',
+};
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === ' ') {
+    dashRequested = true;
+    e.preventDefault();
+    return;
+  }
+  const dir = KEY_MAP[e.key];
+  if (dir) {
+    input[dir] = true;
+    e.preventDefault();
   }
 });
-const pigMeteorSprite = new Image();
-pigMeteorSprite.src = "assets/pig_meteor.png";
-const backgroundImages = {
-  easy: loadCanvasImage("assets/blackhole_easy.jpg"),
-  hard: loadCanvasImage("assets/blackhole_hard.jpg"),
-};
 
-let currentScreen = "title";
-let selectedDifficulty = "easy";
-let currentConfig = DIFFICULTY_CONFIG[selectedDifficulty];
-let animationFrameId = null;
-let lastTimestamp = 0;
-let gameRunning = false;
-let elapsedTime = 0;
-let meteorSpawnTimer = 0;
-let newRecord = false;
-let dragPointerId = null;
-let dragPoint = null;
-let musicEnabled = true;
-let audioContext = null;
-let bgmState = null;
+window.addEventListener('keyup', (e) => {
+  const dir = KEY_MAP[e.key];
+  if (dir) input[dir] = false;
+});
 
-let player = null;
-let blackHole = null;
-let meteors = [];
+// スマホ用 十字ボタン（押している間だけ移動）
+document.querySelectorAll('.dpad-btn').forEach((btn) => {
+  const dir = btn.dataset.dir;
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); input[dir] = true; });
+  btn.addEventListener('pointerup', () => { input[dir] = false; });
+  btn.addEventListener('pointerleave', () => { input[dir] = false; });
+  btn.addEventListener('pointercancel', () => { input[dir] = false; });
+});
 
-const stars = createStars();
-const keyState = { up: false, down: false, left: false, right: false };
-const dpadState = { up: false, down: false, left: false, right: false };
+document.getElementById('btn-dash-touch').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  dashRequested = true;
+});
 
-function init() {
-  bindUI();
-  updateMusicToggleButton();
-  setDifficulty(selectedDifficulty);
-  showScreen("title");
-  renderIdleCanvas();
+/* =========================================================
+ * ユーティリティ
+ * ========================================================= */
+function dist(ax, ay, bx, by) {
+  return Math.hypot(bx - ax, by - ay);
 }
 
-function bindUI() {
-  elements.difficultyButtons.forEach((button) => {
-    button.addEventListener("click", () => setDifficulty(button.dataset.difficulty));
-  });
-
-  elements.startButton.addEventListener("click", () => startGame(selectedDifficulty));
-  elements.musicToggleButton.addEventListener("click", toggleMusic);
-  elements.retryButton.addEventListener("click", () => startGame(selectedDifficulty));
-  elements.backToTitleButton.addEventListener("click", () => {
-    stopGameLoop();
-    stopBgm();
-    renderIdleCanvas();
-    showScreen("title");
-  });
-
-  window.addEventListener("keydown", handleKeyDown);
-  window.addEventListener("keyup", handleKeyUp);
-  window.addEventListener("blur", clearAllInputs);
-
-  bindMobileControls();
-  bindCanvasDrag();
+function randRange(min, max) {
+  return min + Math.random() * (max - min);
 }
 
-function bindMobileControls() {
-  elements.mobileButtons.forEach((button) => {
-    const direction = button.dataset.direction;
-
-    const press = (event) => {
-      event.preventDefault();
-      dpadState[direction] = true;
-      button.classList.add("is-pressed");
-    };
-
-    const release = (event) => {
-      event.preventDefault();
-      dpadState[direction] = false;
-      button.classList.remove("is-pressed");
-    };
-
-    button.addEventListener("pointerdown", press);
-    button.addEventListener("pointerup", release);
-    button.addEventListener("pointercancel", release);
-    button.addEventListener("pointerleave", release);
-  });
+function pickQuote(kind) {
+  const arr = QUOTES[kind];
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function bindCanvasDrag() {
-  elements.canvas.addEventListener("pointerdown", (event) => {
-    dragPointerId = event.pointerId;
-    dragPoint = getCanvasPoint(event);
-    elements.canvas.setPointerCapture(event.pointerId);
-  });
+/* =========================================================
+ * ゲーム初期化
+ * ========================================================= */
+function initGame() {
+  P = DIFFICULTY_PARAMS[selectedLevel];
 
-  elements.canvas.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== dragPointerId) {
-      return;
-    }
-    dragPoint = getCanvasPoint(event);
-  });
+  game.phase = 'playing'; // 'playing' | 'dying'
+  game.elapsed = 0;
 
-  const stopDrag = (event) => {
-    if (event.pointerId !== dragPointerId) {
-      return;
-    }
-    dragPointerId = null;
-    dragPoint = null;
+  game.player = {
+    x: W / 2,
+    y: H - 100,
+    r: P.PLAYER_RADIUS,
   };
 
-  elements.canvas.addEventListener("pointerup", stopDrag);
-  elements.canvas.addEventListener("pointercancel", stopDrag);
-}
-
-function handleKeyDown(event) {
-  const direction = getDirectionFromKey(event.key);
-  if (!direction) {
-    return;
-  }
-
-  event.preventDefault();
-  keyState[direction] = true;
-}
-
-function handleKeyUp(event) {
-  const direction = getDirectionFromKey(event.key);
-  if (!direction) {
-    return;
-  }
-
-  event.preventDefault();
-  keyState[direction] = false;
-}
-
-function getDirectionFromKey(key) {
-  const map = {
-    ArrowUp: "up",
-    ArrowDown: "down",
-    ArrowLeft: "left",
-    ArrowRight: "right",
-    w: "up",
-    W: "up",
-    s: "down",
-    S: "down",
-    a: "left",
-    A: "left",
-    d: "right",
-    D: "right",
-  };
-  return map[key] || null;
-}
-
-function clearAllInputs() {
-  Object.keys(keyState).forEach((key) => {
-    keyState[key] = false;
-    dpadState[key] = false;
-  });
-  elements.mobileButtons.forEach((button) => button.classList.remove("is-pressed"));
-  dragPointerId = null;
-  dragPoint = null;
-}
-
-function setDifficulty(difficulty) {
-  selectedDifficulty = difficulty;
-  currentConfig = DIFFICULTY_CONFIG[difficulty];
-
-  elements.difficultyButtons.forEach((button) => {
-    button.classList.toggle("chip-active", button.dataset.difficulty === difficulty);
-  });
-
-  elements.difficultyBadge.textContent = currentConfig.label;
-  elements.titleHighscoreLabel.textContent = `${currentConfig.label} ベスト`;
-  elements.titleHighscoreValue.textContent = formatSeconds(readHighScore(difficulty));
-
-  if (!gameRunning && currentScreen === "title") {
-    renderIdleCanvas();
-  }
-}
-
-function showScreen(screenName) {
-  currentScreen = screenName;
-  Object.entries(elements.screens).forEach(([name, screen]) => {
-    screen.classList.toggle("screen-active", name === screenName);
-  });
-}
-
-function startGame(difficulty) {
-  stopGameLoop();
-  clearAllInputs();
-
-  currentConfig = DIFFICULTY_CONFIG[difficulty];
-  selectedDifficulty = difficulty;
-  elapsedTime = 0;
-  meteorSpawnTimer = 0;
-  newRecord = false;
-  lastTimestamp = 0;
-  meteors = [];
-
-  player = {
-    x: CANVAS_WIDTH * 0.18,
-    y: CANVAS_HEIGHT * 0.5,
-    radius: currentConfig.playerRadius,
+  game.bh = {
+    x: W / 2 + randRange(-60, 60),
+    y: H / 2 + randRange(-40, 40),
+    r: P.BH_INITIAL_RADIUS,
   };
 
-  blackHole = {
-    x: CANVAS_WIDTH * 0.5,
-    y: CANVAS_HEIGHT * 0.5,
-    radius: currentConfig.bhInitialRadius,
+  game.meteors = [];
+  game.meteorTimer = 0;
+
+  game.stars = [];
+  game.starTimer = 0;
+  game.starsCollected = 0;
+
+  game.effects = []; // かけら収集時のキラッと演出
+
+  game.dash = {
+    active: false,
+    timeLeft: 0,
+    cooldownLeft: 0,
+    dirX: 0,
+    dirY: 0,
+    trail: [], // 残像
   };
 
-  elements.scoreValue.textContent = "0.0";
-  elements.difficultyBadge.textContent = currentConfig.label;
-  showScreen("play");
+  // サージ状態: 'idle' → 'warning' → 'active' → 'idle' ...
+  game.surge = { state: 'idle', timer: P.SURGE_INTERVAL - P.SURGE_WARNING };
 
-  gameRunning = true;
-  startBgm();
-  animationFrameId = requestAnimationFrame(gameLoop);
+  game.bubble = null; // { text, timeLeft }
+  game.dangerCooldown = 0;
+  game.milestones = { 30: false, 60: false };
+
+  game.death = null; // 吸い込まれ演出用
+
+  dashRequested = false;
 }
 
-function stopGameLoop() {
-  gameRunning = false;
-  if (animationFrameId !== null) {
-    cancelAnimationFrame(animationFrameId);
-    animationFrameId = null;
-  }
+function startGame() {
+  initGame();
+  showScreen('play');
+  if (animFrameId !== null) cancelAnimationFrame(animFrameId);
+  lastTime = performance.now();
+  animFrameId = requestAnimationFrame(gameLoop);
 }
 
-function toggleMusic() {
-  musicEnabled = !musicEnabled;
-  updateMusicToggleButton();
+/* =========================================================
+ * メインループ
+ * ========================================================= */
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05); // タブ復帰時の暴走防止
+  lastTime = now;
 
-  if (!musicEnabled) {
-    stopBgm();
-  } else if (gameRunning) {
-    startBgm();
+  if (game.phase === 'playing') {
+    update(dt);
+  } else if (game.phase === 'dying') {
+    updateDeath(dt);
   }
-}
+  draw();
 
-function updateMusicToggleButton() {
-  elements.musicToggleButton.textContent = musicEnabled ? "音楽 ON" : "音楽 OFF";
-  elements.musicToggleButton.setAttribute("aria-pressed", String(musicEnabled));
-}
-
-function ensureAudioContext() {
-  if (audioContext) {
-    return audioContext;
-  }
-
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) {
-    musicEnabled = false;
-    updateMusicToggleButton();
-    return null;
-  }
-
-  audioContext = new AudioContextClass();
-  return audioContext;
-}
-
-function startBgm() {
-  if (!musicEnabled) {
-    return;
-  }
-
-  const context = ensureAudioContext();
-  if (!context) {
-    return;
-  }
-
-  stopBgm();
-  if (context.state === "suspended") {
-    context.resume();
-  }
-
-  const music = currentConfig.music;
-  const masterGain = context.createGain();
-  const droneGain = context.createGain();
-  const harmonyGain = context.createGain();
-  const filter = context.createBiquadFilter();
-  const droneOsc = context.createOscillator();
-  const harmonyOsc = context.createOscillator();
-
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(selectedDifficulty === "hard" ? 980 : 720, context.currentTime);
-  masterGain.gain.setValueAtTime(0.0001, context.currentTime);
-  masterGain.gain.linearRampToValueAtTime(music.volume, context.currentTime + 0.8);
-  droneGain.gain.setValueAtTime(0.42, context.currentTime);
-  harmonyGain.gain.setValueAtTime(0.18, context.currentTime);
-
-  droneOsc.type = "sine";
-  harmonyOsc.type = selectedDifficulty === "hard" ? "sawtooth" : "triangle";
-  droneOsc.frequency.setValueAtTime(music.drone, context.currentTime);
-  harmonyOsc.frequency.setValueAtTime(music.harmony, context.currentTime);
-
-  droneOsc.connect(droneGain);
-  harmonyOsc.connect(harmonyGain);
-  droneGain.connect(filter);
-  harmonyGain.connect(filter);
-  filter.connect(masterGain);
-  masterGain.connect(context.destination);
-
-  droneOsc.start();
-  harmonyOsc.start();
-
-  bgmState = {
-    masterGain,
-    oscillators: [droneOsc, harmonyOsc],
-    intervalId: null,
-    noteIndex: 0,
-  };
-
-  playBgmNote();
-  bgmState.intervalId = window.setInterval(playBgmNote, music.tempo);
-}
-
-function stopBgm() {
-  if (!bgmState || !audioContext) {
-    bgmState = null;
-    return;
-  }
-
-  const context = audioContext;
-  const state = bgmState;
-  const stopAt = context.currentTime + 0.35;
-
-  if (state.intervalId !== null) {
-    window.clearInterval(state.intervalId);
-  }
-
-  state.masterGain.gain.cancelScheduledValues(context.currentTime);
-  state.masterGain.gain.setValueAtTime(state.masterGain.gain.value, context.currentTime);
-  state.masterGain.gain.linearRampToValueAtTime(0.0001, stopAt);
-  state.oscillators.forEach((oscillator) => {
-    oscillator.stop(stopAt);
-  });
-
-  window.setTimeout(() => {
-    state.masterGain.disconnect();
-  }, 420);
-
-  bgmState = null;
-}
-
-function playBgmNote() {
-  if (!bgmState || !audioContext) {
-    return;
-  }
-
-  const context = audioContext;
-  const music = currentConfig.music;
-  const frequency = music.notes[bgmState.noteIndex % music.notes.length];
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-
-  oscillator.type = selectedDifficulty === "hard" ? "square" : "sine";
-  oscillator.frequency.setValueAtTime(frequency, context.currentTime);
-  gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.linearRampToValueAtTime(selectedDifficulty === "hard" ? 0.07 : 0.045, context.currentTime + 0.05);
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.7);
-
-  oscillator.connect(gain);
-  gain.connect(bgmState.masterGain);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.74);
-
-  bgmState.noteIndex += 1;
-}
-
-function gameLoop(timestamp) {
-  if (!gameRunning) {
-    return;
-  }
-
-  if (!lastTimestamp) {
-    lastTimestamp = timestamp;
-  }
-
-  const dt = Math.min((timestamp - lastTimestamp) / 1000, MAX_DT);
-  lastTimestamp = timestamp;
-
-  updateGame(dt);
-  renderGame();
-
-  if (gameRunning) {
-    animationFrameId = requestAnimationFrame(gameLoop);
+  if (game.phase !== 'done') {
+    animFrameId = requestAnimationFrame(gameLoop);
   }
 }
 
-function updateGame(dt) {
-  elapsedTime += dt;
-  meteorSpawnTimer += dt;
-  elements.scoreValue.textContent = elapsedTime.toFixed(1);
-
-  const inputVector = getInputVector();
-  const gravityVector = getGravityVector();
-
-  player.x += (inputVector.x * currentConfig.playerSpeed + gravityVector.x) * dt;
-  player.y += (inputVector.y * currentConfig.playerSpeed + gravityVector.y) * dt;
-
-  clampPlayerToBounds();
-
-  blackHole.radius += currentConfig.bhGrowthRate * dt;
-
-  if (meteorSpawnTimer >= currentConfig.meteorSpawnInterval) {
-    meteorSpawnTimer -= currentConfig.meteorSpawnInterval;
-    spawnMeteor();
-  }
-
+/* =========================================================
+ * 更新処理
+ * ========================================================= */
+function update(dt) {
+  game.elapsed += dt;
+  updateSurge(dt);
+  updateDash(dt);
+  updatePlayer(dt);
   updateMeteors(dt);
+  updateStars(dt);
+  updateEffects(dt);
+  updateBubble(dt);
+  checkMilestones();
 
-  if (isColliding(player, blackHole) || meteors.some((meteor) => isColliding(player, meteor))) {
-    endGame();
-  }
+  // ブラックホール拡大
+  game.bh.r += P.BH_GROWTH_RATE * dt;
+
+  checkCollisions();
+  updateHud();
 }
 
-function getInputVector() {
-  let x = 0;
-  let y = 0;
-
-  if (keyState.left || dpadState.left) {
-    x -= 1;
-  }
-  if (keyState.right || dpadState.right) {
-    x += 1;
-  }
-  if (keyState.up || dpadState.up) {
-    y -= 1;
-  }
-  if (keyState.down || dpadState.down) {
-    y += 1;
-  }
-
-  if (x === 0 && y === 0 && dragPoint) {
-    x = dragPoint.x - player.x;
-    y = dragPoint.y - player.y;
-  }
-
-  return normalizeVector(x, y);
+function gravityMultiplier() {
+  return game.surge.state === 'active' ? P.SURGE_MULTIPLIER : 1;
 }
 
-function getGravityVector() {
-  const dx = blackHole.x - player.x;
-  const dy = blackHole.y - player.y;
-  const distance = Math.hypot(dx, dy) || 1;
-  const direction = normalizeVector(dx, dy);
-  const distanceFromEdge = Math.max(distance - blackHole.radius, 35);
-  const timeRamp = Math.min(2.4, 0.65 + elapsedTime * currentConfig.bhGravityRamp);
-  const proximityBoost = 1 + Math.max(0, 170 - distanceFromEdge) / 170;
-  const force = (currentConfig.bhGravityStrength / distanceFromEdge) * timeRamp * proximityBoost;
-
-  return {
-    x: direction.x * force,
-    y: direction.y * force,
-  };
+// 引力：force = K / max(distance, 50) を中心方向へ（設計図 2-2節）
+function gravityForceAt(x, y) {
+  const d = dist(x, y, game.bh.x, game.bh.y);
+  const force = (P.BH_GRAVITY_STRENGTH / Math.max(d, 50)) * gravityMultiplier();
+  const nx = (game.bh.x - x) / Math.max(d, 0.001);
+  const ny = (game.bh.y - y) / Math.max(d, 0.001);
+  return { fx: nx * force, fy: ny * force, d };
 }
 
-function clampPlayerToBounds() {
-  player.x = clamp(player.x, player.radius, CANVAS_WIDTH - player.radius);
-  player.y = clamp(player.y, player.radius, CANVAS_HEIGHT - player.radius);
-}
+function updateSurge(dt) {
+  const s = game.surge;
+  s.timer -= dt;
+  if (s.timer > 0) return;
 
-function spawnMeteor() {
-  const side = Math.floor(Math.random() * 4);
-  const radius = randomRange(currentConfig.meteorRadiusMin, currentConfig.meteorRadiusMax);
-  let x = 0;
-  let y = 0;
-
-  if (side === 0) {
-    x = randomRange(0, CANVAS_WIDTH);
-    y = -radius - 12;
-  } else if (side === 1) {
-    x = CANVAS_WIDTH + radius + 12;
-    y = randomRange(0, CANVAS_HEIGHT);
-  } else if (side === 2) {
-    x = randomRange(0, CANVAS_WIDTH);
-    y = CANVAS_HEIGHT + radius + 12;
+  if (s.state === 'idle') {
+    s.state = 'warning';
+    s.timer = P.SURGE_WARNING;
+    showBubble(pickQuote('surgeWarning'));
+  } else if (s.state === 'warning') {
+    s.state = 'active';
+    s.timer = P.SURGE_DURATION;
   } else {
-    x = -radius - 12;
-    y = randomRange(0, CANVAS_HEIGHT);
+    s.state = 'idle';
+    s.timer = P.SURGE_INTERVAL - P.SURGE_WARNING;
+  }
+}
+
+function updateDash(dt) {
+  const dash = game.dash;
+  if (dash.cooldownLeft > 0) dash.cooldownLeft -= dt;
+
+  if (dashRequested) {
+    dashRequested = false;
+    if (!dash.active && dash.cooldownLeft <= 0) {
+      // 移動入力があればその方向、ニュートラルならBHと逆方向へ緊急脱出
+      let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+      if (dx === 0 && dy === 0) {
+        const d = dist(game.player.x, game.player.y, game.bh.x, game.bh.y);
+        dx = (game.player.x - game.bh.x) / Math.max(d, 0.001);
+        dy = (game.player.y - game.bh.y) / Math.max(d, 0.001);
+      } else {
+        const len = Math.hypot(dx, dy);
+        dx /= len;
+        dy /= len;
+      }
+      dash.active = true;
+      dash.timeLeft = P.DASH_DURATION;
+      dash.cooldownLeft = P.DASH_COOLDOWN;
+      dash.dirX = dx;
+      dash.dirY = dy;
+      showBubble(pickQuote('dash'));
+    }
   }
 
-  const targetX = CANVAS_WIDTH * 0.5 + randomRange(-CANVAS_WIDTH * 0.18, CANVAS_WIDTH * 0.18);
-  const targetY = CANVAS_HEIGHT * 0.5 + randomRange(-CANVAS_HEIGHT * 0.18, CANVAS_HEIGHT * 0.18);
-  const direction = normalizeVector(targetX - x, targetY - y);
+  if (dash.active) {
+    dash.timeLeft -= dt;
+    dash.trail.push({ x: game.player.x, y: game.player.y, life: 0.3 });
+    if (dash.timeLeft <= 0) dash.active = false;
+  }
+  dash.trail = dash.trail.filter((t) => (t.life -= dt) > 0);
+}
 
-  meteors.push({
-    x,
-    y,
-    radius,
-    vx: direction.x * currentConfig.meteorSpeed,
-    vy: direction.y * currentConfig.meteorSpeed,
-    rotation: randomRange(0, Math.PI * 2),
-    spin: randomRange(-2.4, 2.4),
-  });
+function updatePlayer(dt) {
+  const p = game.player;
+  let vx = 0;
+  let vy = 0;
+
+  if (game.dash.active) {
+    vx = game.dash.dirX * P.PLAYER_SPEED * P.DASH_SPEED_MULTIPLIER;
+    vy = game.dash.dirY * P.PLAYER_SPEED * P.DASH_SPEED_MULTIPLIER;
+  } else {
+    let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    if (dx !== 0 || dy !== 0) {
+      const len = Math.hypot(dx, dy); // 斜め移動が速くならないよう正規化
+      vx = (dx / len) * P.PLAYER_SPEED;
+      vy = (dy / len) * P.PLAYER_SPEED;
+    }
+  }
+
+  // 引力を合成
+  const g = gravityForceAt(p.x, p.y);
+  p.x += (vx + g.fx) * dt;
+  p.y += (vy + g.fy) * dt;
+
+  // 画面端でクランプ
+  p.x = Math.max(p.r, Math.min(W - p.r, p.x));
+  p.y = Math.max(p.r, Math.min(H - p.r, p.y));
+
+  // 危険接近セリフ（BH表面から80px未満、5秒に1回まで）
+  if (game.dangerCooldown > 0) game.dangerCooldown -= dt;
+  const surfaceDist = g.d - game.bh.r;
+  if (surfaceDist < DANGER_DISTANCE && game.dangerCooldown <= 0) {
+    showBubble(pickQuote('danger'));
+    game.dangerCooldown = DANGER_COOLDOWN;
+  }
 }
 
 function updateMeteors(dt) {
-  meteors = meteors.filter((meteor) => {
-    const dx = blackHole.x - meteor.x;
-    const dy = blackHole.y - meteor.y;
-    const distance = Math.max(Math.hypot(dx, dy), 60);
-    const gravity = 900 / distance;
+  game.meteorTimer -= dt;
+  if (game.meteorTimer <= 0) {
+    spawnMeteor();
+    game.meteorTimer = P.METEOR_SPAWN_INTERVAL;
+  }
 
-    meteor.vx += (dx / distance) * gravity;
-    meteor.vy += (dy / distance) * gravity;
-    meteor.x += meteor.vx * dt;
-    meteor.y += meteor.vy * dt;
-    meteor.rotation += meteor.spin * dt;
+  for (const m of game.meteors) {
+    // 引力で軌道が少し曲がる（設計図 2-3節の任意実装）
+    const g = gravityForceAt(m.x, m.y);
+    m.vx += g.fx * 0.5 * dt;
+    m.vy += g.fy * 0.5 * dt;
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+  }
 
-    const margin = meteor.radius + 40;
-    return !(
-      meteor.x < -margin ||
-      meteor.x > CANVAS_WIDTH + margin ||
-      meteor.y < -margin ||
-      meteor.y > CANVAS_HEIGHT + margin
-    );
+  // 画面外に完全に出た隕石とBHに飲まれた隕石を除去
+  game.meteors = game.meteors.filter((m) => {
+    if (m.x < -60 || m.x > W + 60 || m.y < -60 || m.y > H + 60) return false;
+    if (dist(m.x, m.y, game.bh.x, game.bh.y) < game.bh.r) return false;
+    return true;
   });
 }
 
-function endGame() {
-  stopGameLoop();
-  stopBgm();
+function spawnMeteor() {
+  const r = randRange(METEOR_RADIUS_MIN, METEOR_RADIUS_MAX);
+  // 外周のどの辺から出すか
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = randRange(0, W); y = -r; }        // 上
+  else if (side === 1) { x = randRange(0, W); y = H + r; } // 下
+  else if (side === 2) { x = -r; y = randRange(0, H); }    // 左
+  else { x = W + r; y = randRange(0, H); }                 // 右
 
-  const previousBest = readHighScore(selectedDifficulty);
-  const finalValue = Number(elapsedTime.toFixed(1));
-  const bestValue = Math.max(previousBest, finalValue);
-  newRecord = finalValue > previousBest;
-
-  if (newRecord) {
-    saveHighScore(selectedDifficulty, finalValue);
-  }
-
-  elements.finalScore.textContent = formatSeconds(finalValue);
-  elements.bestScore.textContent = formatSeconds(bestValue);
-  elements.recordBanner.hidden = !newRecord;
-
-  setDifficulty(selectedDifficulty);
-  showScreen("gameover");
-}
-
-function renderIdleCanvas() {
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  drawBackground();
-  drawStars();
-
-  const previewBlackHole = {
-    x: CANVAS_WIDTH * 0.5,
-    y: CANVAS_HEIGHT * 0.5,
-    radius: 46,
-  };
-  drawBlackHole(previewBlackHole);
-  drawPlayer({
-    x: CANVAS_WIDTH * 0.22,
-    y: CANVAS_HEIGHT * 0.54,
-    radius: 16,
+  // canvas内側のランダムな点へ向かう
+  const tx = randRange(W * 0.2, W * 0.8);
+  const ty = randRange(H * 0.2, H * 0.8);
+  const d = dist(x, y, tx, ty);
+  game.meteors.push({
+    x, y, r,
+    vx: ((tx - x) / d) * P.METEOR_SPEED,
+    vy: ((ty - y) / d) * P.METEOR_SPEED,
   });
 }
 
-function renderGame() {
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  drawBackground();
-  drawStars();
-  drawBlackHole(blackHole);
-  meteors.forEach(drawMeteor);
-  drawPlayer(player);
-}
-
-function drawBackground() {
-  const backgroundImage = backgroundImages[currentConfig.backgroundKey];
-  if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
-    drawImageCover(backgroundImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    drawDifficultyAtmosphere();
-    return;
+function updateStars(dt) {
+  game.starTimer -= dt;
+  if (game.starTimer <= 0) {
+    if (game.stars.length < P.STAR_MAX_COUNT) spawnStar();
+    game.starTimer = P.STAR_SPAWN_INTERVAL;
   }
 
-  const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-  gradient.addColorStop(0, "#12254a");
-  gradient.addColorStop(0.55, "#081223");
-  gradient.addColorStop(1, "#03060d");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-}
+  for (const s of game.stars) s.life -= dt;
 
-function drawImageCover(image, x, y, width, height) {
-  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-  const sourceWidth = width / scale;
-  const sourceHeight = height / scale;
-  const sourceX = (image.naturalWidth - sourceWidth) / 2;
-  const sourceY = (image.naturalHeight - sourceHeight) / 2;
-
-  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
-}
-
-function drawDifficultyAtmosphere() {
-  const overlay = ctx.createRadialGradient(CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, 60, CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.65);
-  if (selectedDifficulty === "hard") {
-    overlay.addColorStop(0, "rgba(0, 0, 0, 0.05)");
-    overlay.addColorStop(0.62, "rgba(255, 80, 42, 0.08)");
-    overlay.addColorStop(1, "rgba(0, 0, 0, 0.58)");
-  } else {
-    overlay.addColorStop(0, "rgba(0, 0, 0, 0.04)");
-    overlay.addColorStop(0.65, "rgba(55, 218, 220, 0.06)");
-    overlay.addColorStop(1, "rgba(0, 0, 0, 0.5)");
-  }
-  ctx.fillStyle = overlay;
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-}
-
-function drawStars() {
-  stars.forEach((star) => {
-    ctx.globalAlpha = star.alpha;
-    ctx.fillStyle = star.color;
-    ctx.beginPath();
-    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
-    ctx.fill();
+  // 寿命切れ・BHに飲まれたかけらを除去
+  game.stars = game.stars.filter((s) => {
+    if (s.life <= 0) return false;
+    if (dist(s.x, s.y, game.bh.x, game.bh.y) < game.bh.r) return false;
+    return true;
   });
-  ctx.globalAlpha = 1;
 }
 
-function drawBlackHole(entity) {
-  const glow = ctx.createRadialGradient(entity.x, entity.y, entity.radius * 0.5, entity.x, entity.y, entity.radius * 2.3);
-  glow.addColorStop(0, "rgba(0, 0, 0, 0.96)");
-  glow.addColorStop(0.45, "rgba(27, 6, 49, 0.8)");
-  glow.addColorStop(0.72, "rgba(35, 90, 162, 0.35)");
-  glow.addColorStop(1, "rgba(35, 90, 162, 0)");
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(entity.x, entity.y, entity.radius * 2.2, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#010103";
-  ctx.beginPath();
-  ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = "rgba(132, 244, 214, 0.35)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(entity.x, entity.y, entity.radius + 4, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-function drawPlayer(entity) {
-  if (playerSprite.complete && playerSprite.naturalWidth > 0) {
-    drawPlayerSprite(entity);
-    return;
-  }
-
-  ctx.save();
-  ctx.translate(entity.x, entity.y);
-
-  ctx.fillStyle = "#ff8eb7";
-  ctx.beginPath();
-  ctx.arc(0, 0, entity.radius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#ffffff";
-  ctx.beginPath();
-  ctx.arc(-5, -3, 2.8, 0, Math.PI * 2);
-  ctx.arc(5, -3, 2.8, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = "#2e1938";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(0, 4, 6, 0.15 * Math.PI, 0.85 * Math.PI);
-  ctx.stroke();
-
-  ctx.fillStyle = "#ffd166";
-  ctx.beginPath();
-  ctx.moveTo(-8, -entity.radius + 4);
-  ctx.lineTo(-2, -entity.radius - 6);
-  ctx.lineTo(0, -entity.radius + 1);
-  ctx.lineTo(3, -entity.radius - 8);
-  ctx.lineTo(7, -entity.radius + 4);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawPlayerSprite(entity) {
-  const drawWidth = PLAYER_SPRITE_DRAW.width;
-  const drawHeight = PLAYER_SPRITE_DRAW.height;
-  const dx = entity.x - drawWidth / 2;
-  const dy = entity.y - drawHeight / 2 - PLAYER_SPRITE_DRAW.centerYOffset;
-
-  ctx.save();
-  ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
-  ctx.shadowBlur = 14;
-  ctx.shadowOffsetY = 8;
-  ctx.drawImage(
-    playerSprite,
-    PLAYER_SPRITE_SOURCE.x,
-    PLAYER_SPRITE_SOURCE.y,
-    PLAYER_SPRITE_SOURCE.width,
-    PLAYER_SPRITE_SOURCE.height,
-    dx,
-    dy,
-    drawWidth,
-    drawHeight
-  );
-  ctx.restore();
-}
-
-function drawMeteor(meteor) {
-  if (pigMeteorSprite.complete && pigMeteorSprite.naturalWidth > 0) {
-    drawPigMeteor(meteor);
-    return;
-  }
-
-  ctx.save();
-  ctx.translate(meteor.x, meteor.y);
-  ctx.rotate((meteor.vx + meteor.vy) * 0.002);
-
-  ctx.fillStyle = `hsl(${meteor.hue} 84% 58%)`;
-  ctx.beginPath();
-  ctx.arc(0, 0, meteor.radius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(255, 230, 180, 0.55)";
-  ctx.beginPath();
-  ctx.arc(-meteor.radius * 0.28, -meteor.radius * 0.22, meteor.radius * 0.34, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawPigMeteor(meteor) {
-  const speedAngle = Math.atan2(meteor.vy, meteor.vx);
-  const drawSize = meteor.radius * 3.2;
-
-  ctx.save();
-  ctx.translate(meteor.x, meteor.y);
-  ctx.rotate(speedAngle);
-
-  const trail = ctx.createLinearGradient(-drawSize * 1.05, 0, -drawSize * 0.15, 0);
-  trail.addColorStop(0, "rgba(255, 80, 80, 0)");
-  trail.addColorStop(0.45, "rgba(255, 127, 57, 0.32)");
-  trail.addColorStop(1, "rgba(255, 214, 102, 0.62)");
-  ctx.fillStyle = trail;
-  ctx.beginPath();
-  ctx.moveTo(-drawSize * 1.05, 0);
-  ctx.lineTo(-drawSize * 0.18, -meteor.radius * 0.78);
-  ctx.lineTo(-drawSize * 0.04, 0);
-  ctx.lineTo(-drawSize * 0.18, meteor.radius * 0.78);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.rotate(meteor.rotation);
-  ctx.shadowColor = "rgba(0, 0, 0, 0.42)";
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetY = 5;
-  ctx.drawImage(
-    pigMeteorSprite,
-    PIG_METEOR_SPRITE_SOURCE.x,
-    PIG_METEOR_SPRITE_SOURCE.y,
-    PIG_METEOR_SPRITE_SOURCE.width,
-    PIG_METEOR_SPRITE_SOURCE.height,
-    -drawSize / 2,
-    -drawSize / 2,
-    drawSize,
-    drawSize
-  );
-  ctx.restore();
-}
-
-function isColliding(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius;
-}
-
-function readHighScore(difficulty) {
-  const value = window.localStorage.getItem(STORAGE_KEYS[difficulty]);
-  return value ? Number(value) : 0;
-}
-
-function saveHighScore(difficulty, score) {
-  window.localStorage.setItem(STORAGE_KEYS[difficulty], score.toFixed(1));
-}
-
-function formatSeconds(value) {
-  return `${Number(value).toFixed(1)} 秒`;
-}
-
-function createStars() {
-  const palette = ["rgba(255,255,255,0.95)", "rgba(132,244,214,0.95)", "rgba(255,209,102,0.85)"];
-  return Array.from({ length: STAR_COUNT }, () => ({
-    x: randomRange(0, CANVAS_WIDTH),
-    y: randomRange(0, CANVAS_HEIGHT),
-    radius: randomRange(0.8, 2.1),
-    alpha: randomRange(0.35, 0.95),
-    color: palette[Math.floor(Math.random() * palette.length)],
-  }));
-}
-
-function normalizeVector(x, y) {
-  const length = Math.hypot(x, y);
-  if (!length) {
-    return { x: 0, y: 0 };
-  }
-
-  return { x: x / length, y: y / length };
-}
-
-function getCanvasPoint(event) {
-  const rect = elements.canvas.getBoundingClientRect();
-  const scaleX = CANVAS_WIDTH / rect.width;
-  const scaleY = CANVAS_HEIGHT / rect.height;
-  return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
-  };
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function randomRange(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
-function loadCanvasImage(src) {
-  const image = new Image();
-  image.src = src;
-  image.addEventListener("load", () => {
-    if (!gameRunning) {
-      renderIdleCanvas();
+// BH表面から60〜200pxのドーナツ状範囲に出現（設計図 2-5節）
+function spawnStar() {
+  const margin = 20;
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const d = game.bh.r + randRange(60, 200);
+    const x = game.bh.x + Math.cos(angle) * d;
+    const y = game.bh.y + Math.sin(angle) * d;
+    if (x > margin && x < W - margin && y > margin && y < H - margin) {
+      game.stars.push({ x, y, r: P.STAR_RADIUS, life: P.STAR_LIFETIME });
+      return;
     }
-  });
-  return image;
+  }
+  // 20回試してcanvas内に収まらなければ今回は出現なし
 }
 
-init();
+function updateEffects(dt) {
+  for (const e of game.effects) e.life -= dt;
+  game.effects = game.effects.filter((e) => e.life > 0);
+}
+
+function updateBubble(dt) {
+  if (game.bubble) {
+    game.bubble.timeLeft -= dt;
+    if (game.bubble.timeLeft <= 0) game.bubble = null;
+  }
+}
+
+function showBubble(text) {
+  game.bubble = { text, timeLeft: BUBBLE_DURATION }; // 新イベントで上書き
+}
+
+function checkMilestones() {
+  for (const sec of [30, 60]) {
+    if (!game.milestones[sec] && game.elapsed >= sec) {
+      game.milestones[sec] = true;
+      showBubble(pickQuote('survive'));
+    }
+  }
+}
+
+function currentScore() {
+  return Math.floor(game.elapsed) + game.starsCollected * P.STAR_BONUS;
+}
+
+function checkCollisions() {
+  const p = game.player;
+
+  // かけら収集（円判定）
+  for (let i = game.stars.length - 1; i >= 0; i--) {
+    const s = game.stars[i];
+    if (dist(p.x, p.y, s.x, s.y) < p.r + s.r) {
+      game.stars.splice(i, 1);
+      game.starsCollected++;
+      game.effects.push({ x: s.x, y: s.y, life: 0.4, maxLife: 0.4 });
+      showBubble(pickQuote('collect'));
+    }
+  }
+
+  // ブラックホールに吸い込まれた
+  if (dist(p.x, p.y, game.bh.x, game.bh.y) < p.r + game.bh.r) {
+    beginDeath();
+    return;
+  }
+
+  // 隕石に衝突
+  for (const m of game.meteors) {
+    if (dist(p.x, p.y, m.x, m.y) < p.r + m.r) {
+      beginDeath();
+      return;
+    }
+  }
+}
+
+/* =========================================================
+ * 吸い込まれ演出（設計図 2-8節）
+ * ========================================================= */
+function beginDeath() {
+  const p = game.player;
+  const d = dist(p.x, p.y, game.bh.x, game.bh.y);
+  game.phase = 'dying';
+  game.death = {
+    t: 0,
+    startDist: Math.max(d, 1),
+    startAngle: Math.atan2(p.y - game.bh.y, p.x - game.bh.x),
+  };
+}
+
+function updateDeath(dt) {
+  const dth = game.death;
+  dth.t += dt;
+  const progress = Math.min(dth.t / DEATH_ANIM_DURATION, 1);
+
+  // 螺旋を描きながらBH中心へ（半径縮小＋回転）
+  const r = dth.startDist * (1 - progress);
+  const angle = dth.startAngle + progress * Math.PI * 4; // 2回転
+  game.player.x = game.bh.x + Math.cos(angle) * r;
+  game.player.y = game.bh.y + Math.sin(angle) * r;
+  game.death.scale = 1 - progress;
+
+  if (progress >= 1) {
+    game.phase = 'done';
+    finishGame();
+  }
+}
+
+function finishGame() {
+  if (animFrameId !== null) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+
+  const score = currentScore();
+  const prevHigh = loadHighscore(selectedLevel);
+  const isNewRecord = score > prevHigh;
+  if (isNewRecord) saveHighscore(selectedLevel, score);
+
+  document.getElementById('gameover-quote').textContent = pickQuote('gameover');
+  document.getElementById('final-score').textContent = score;
+  document.getElementById('final-time').textContent = game.elapsed.toFixed(1);
+  document.getElementById('final-stars').textContent = game.starsCollected;
+  document.getElementById('final-highscore').textContent = Math.max(score, prevHigh);
+  document.getElementById('new-record').classList.toggle('hidden', !isNewRecord);
+
+  showScreen('gameover');
+}
+
+/* =========================================================
+ * 描画処理
+ * ========================================================= */
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+
+  // サージ予兆・発動中は画面を揺らす
+  if (game.surge.state === 'warning' || game.surge.state === 'active') {
+    ctx.translate(randRange(-3, 3), randRange(-3, 3));
+  }
+
+  drawStarsBackground();
+  drawBlackHole();
+  drawStarsItems();
+  drawMeteors();
+  drawEffects();
+  drawDashTrail();
+  drawPlayer();
+  drawBubble();
+
+  ctx.restore();
+}
+
+// 背景の小さな星（固定シードの簡易スターフィールド）
+const bgStars = Array.from({ length: 60 }, () => ({
+  x: Math.random() * W,
+  y: Math.random() * H,
+  r: Math.random() * 1.5 + 0.5,
+}));
+
+function drawStarsBackground() {
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  for (const s of bgStars) {
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawBlackHole() {
+  const { x, y, r } = game.bh;
+  const surging = game.surge.state === 'active';
+  const warning = game.surge.state === 'warning';
+
+  // 外周グロー
+  const glowR = r * 1.8;
+  const grad = ctx.createRadialGradient(x, y, r * 0.6, x, y, glowR);
+  if (surging) {
+    grad.addColorStop(0, 'rgba(255,60,120,0.9)');
+    grad.addColorStop(1, 'rgba(255,60,120,0)');
+  } else if (warning) {
+    grad.addColorStop(0, 'rgba(220,80,200,0.8)');
+    grad.addColorStop(1, 'rgba(220,80,200,0)');
+  } else {
+    grad.addColorStop(0, 'rgba(140,80,255,0.6)');
+    grad.addColorStop(1, 'rgba(140,80,255,0)');
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, glowR, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // サージ中は吸い込み線を描く
+  if (surging) {
+    ctx.strokeStyle = 'rgba(255,120,180,0.35)';
+    ctx.lineWidth = 2;
+    const t = performance.now() / 1000;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + t * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * (r + 60), y + Math.sin(a) * (r + 60));
+      ctx.lineTo(x + Math.cos(a + 0.4) * (r + 8), y + Math.sin(a + 0.4) * (r + 8));
+      ctx.stroke();
+    }
+  }
+
+  // 本体（黒円）
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+}
+
+function drawStarsItems() {
+  for (const s of game.stars) {
+    // 残り2秒で点滅
+    if (s.life < 2 && Math.floor(s.life * 6) % 2 === 0) continue;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    // 光条（十字）
+    ctx.strokeStyle = 'rgba(255,226,122,0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-s.r * 1.4, 0); ctx.lineTo(s.r * 1.4, 0);
+    ctx.moveTo(0, -s.r * 1.4); ctx.lineTo(0, s.r * 1.4);
+    ctx.stroke();
+    // 本体
+    ctx.beginPath();
+    ctx.arc(0, 0, s.r * 0.7, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffe27a';
+    ctx.shadowColor = '#ffe27a';
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawMeteors() {
+  for (const m of game.meteors) {
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#9a8f85';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
+    ctx.fillStyle = '#b8ada0';
+    ctx.fill();
+  }
+}
+
+function drawEffects() {
+  for (const e of game.effects) {
+    const progress = 1 - e.life / e.maxLife;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 10 + progress * 30, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,226,122,${1 - progress})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+}
+
+function drawDashTrail() {
+  for (const t of game.dash.trail) {
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, game.player.r * 0.8, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(143,216,255,${t.life})`;
+    ctx.fill();
+  }
+}
+
+// プレイヤー描画は画像差し替えを想定して専用関数に分離（設計図 3章）
+function drawPlayer() {
+  const p = game.player;
+  const scale = game.phase === 'dying' ? Math.max(game.death.scale ?? 1, 0) : 1;
+  const r = p.r * scale;
+  if (r <= 0.5) return;
+
+  ctx.save();
+  // 本体（ピンクの円＝ロマ子様プレースホルダー）
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff8fc8';
+  ctx.shadowColor = '#ff8fc8';
+  ctx.shadowBlur = 10;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#ffd9ec';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // 簡易お顔
+  if (scale > 0.4) {
+    ctx.fillStyle = '#5a2040';
+    ctx.beginPath();
+    ctx.arc(p.x - r * 0.3, p.y - r * 0.15, r * 0.12, 0, Math.PI * 2);
+    ctx.arc(p.x + r * 0.3, p.y - r * 0.15, r * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + r * 0.2, r * 0.25, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.strokeStyle = '#5a2040';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBubble() {
+  if (!game.bubble || game.phase === 'dying') return;
+  const p = game.player;
+  const text = game.bubble.text;
+
+  ctx.save();
+  ctx.font = '14px sans-serif';
+  const tw = ctx.measureText(text).width;
+  const bw = tw + 20;
+  const bh = 28;
+  let bx = p.x - bw / 2;
+  let by = p.y - p.r - bh - 14;
+  // 画面内に収める
+  bx = Math.max(4, Math.min(W - bw - 4, bx));
+  by = Math.max(4, by);
+
+  // 吹き出し本体
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 10);
+  ctx.fill();
+  // しっぽ
+  ctx.beginPath();
+  ctx.moveTo(p.x - 5, by + bh);
+  ctx.lineTo(p.x + 5, by + bh);
+  ctx.lineTo(p.x, by + bh + 8);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#33224a';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + 10, by + bh / 2 + 1);
+  ctx.restore();
+}
+
+/* =========================================================
+ * HUD更新
+ * ========================================================= */
+function updateHud() {
+  scoreValueEl.textContent = currentScore();
+
+  const dash = game.dash;
+  const ratio = dash.cooldownLeft > 0 ? 1 - dash.cooldownLeft / P.DASH_COOLDOWN : 1;
+  dashGaugeEl.style.width = (ratio * 100).toFixed(0) + '%';
+  dashGaugeEl.classList.toggle('ready', ratio >= 1);
+}
+
+/* =========================================================
+ * UIイベント（難易度選択・画面遷移）
+ * ========================================================= */
+document.querySelectorAll('.difficulty-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    selectedLevel = btn.dataset.level;
+    document.querySelectorAll('.difficulty-btn').forEach((b) => {
+      b.classList.toggle('selected', b === btn);
+    });
+  });
+});
+
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-retry').addEventListener('click', startGame);
+document.getElementById('btn-title').addEventListener('click', () => {
+  refreshTitleHighscores();
+  showScreen('title');
+});
+
+// 初期表示
+refreshTitleHighscores();
+showScreen('title');
