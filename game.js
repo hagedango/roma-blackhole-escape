@@ -51,7 +51,7 @@ const DIFFICULTY_PARAMS = {
     PLAYER_RADIUS: 16,
     BH_INITIAL_RADIUS: 40,
     BH_GROWTH_RATE: 6,
-    BH_GRAVITY_STRENGTH: 8000,
+    BH_GRAVITY_STRENGTH: 12000, // 吸い込み引力アップ
     METEOR_SPAWN_INTERVAL: 0.7,
     METEOR_SPEED: 220,
     STAR_SPAWN_INTERVAL: 2.5,
@@ -65,7 +65,7 @@ const DIFFICULTY_PARAMS = {
     SURGE_INTERVAL: 8,
     SURGE_WARNING: 1.5,
     SURGE_DURATION: 2.5,
-    SURGE_MULTIPLIER: 3,
+    SURGE_MULTIPLIER: 3.5, // サージ中の引力倍率アップ
   },
 };
 
@@ -205,6 +205,37 @@ document.getElementById('btn-dash-touch').addEventListener('pointerdown', (e) =>
   dashRequested = true;
 });
 
+// キャンバスでのドラッグ・タップ移動（設計図の復元）
+function getCanvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+canvas.addEventListener('pointerdown', (event) => {
+  game.dragPointerId = event.pointerId;
+  game.dragPoint = getCanvasPoint(event);
+  canvas.setPointerCapture(event.pointerId);
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== game.dragPointerId) return;
+  game.dragPoint = getCanvasPoint(event);
+});
+
+const stopDrag = (event) => {
+  if (event.pointerId !== game.dragPointerId) return;
+  game.dragPointerId = null;
+  game.dragPoint = null;
+};
+
+canvas.addEventListener('pointerup', stopDrag);
+canvas.addEventListener('pointercancel', stopDrag);
+
 /* =========================================================
  * ユーティリティ
  * ========================================================= */
@@ -268,6 +299,9 @@ function initGame() {
   game.milestones = { 30: false, 60: false };
 
   game.death = null; // 吸い込まれ演出用
+
+  game.dragPointerId = null;
+  game.dragPoint = null;
 
   dashRequested = false;
 }
@@ -398,8 +432,20 @@ function updatePlayer(dt) {
   } else {
     let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+
+    // キー入力がないとき、ドラッグ/タップ入力があればその方向へ移動
+    if (dx === 0 && dy === 0 && game.dragPoint) {
+      dx = game.dragPoint.x - p.x;
+      dy = game.dragPoint.y - p.y;
+      // ある程度近づいたら移動を止める（チャタリング防止）
+      if (Math.hypot(dx, dy) < 5) {
+        dx = 0;
+        dy = 0;
+      }
+    }
+
     if (dx !== 0 || dy !== 0) {
-      const len = Math.hypot(dx, dy); // 斜め移動が速くならないよう正規化
+      const len = Math.hypot(dx, dy); // 正規化
       vx = (dx / len) * P.PLAYER_SPEED;
       vy = (dy / len) * P.PLAYER_SPEED;
     }
