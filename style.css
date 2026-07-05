@@ -19,38 +19,136 @@ body {
   min-height: 100vh;
   padding: 12px;
   touch-action: manipulation;
+  overflow-x: hidden;
+}
+
+/* ===== 背景の流れる星（CSSのみ） ===== */
+#stars-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1px 1px at 70% 15%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(2px 2px at 45% 70%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 85% 55%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 10% 80%, rgba(200,180,255,0.6), transparent),
+    radial-gradient(1px 1px at 60% 90%, rgba(255,200,230,0.5), transparent);
+  background-size: 600px 600px;
+  animation: starsDrift 90s linear infinite;
+}
+
+@keyframes starsDrift {
+  from { background-position: 0 0; }
+  to   { background-position: -600px 600px; }
 }
 
 #game-container {
   width: 100%;
   max-width: 840px;
+  position: relative;
 }
 
 .screen {
   text-align: center;
-  padding: 24px 12px;
+  padding: 20px 8px;
+  animation: screenIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes screenIn {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .hidden {
   display: none !important;
 }
 
+/* ===== ガラスモルフィズム共通 ===== */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 26px;
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  padding: 30px 22px 34px;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.glass-inline {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-bar {
+  background: rgba(10, 10, 30, 0.45);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.glass-icon {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  width: 44px;
+  height: 44px;
+  font-size: 1.15rem;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
+}
+
+.glass-icon:hover {
+  transform: scale(1.12) rotate(8deg);
+  background: rgba(255, 255, 255, 0.14);
+}
+
 /* ===== タイトル画面 ===== */
+.title-panel {
+  margin-top: 26px;
+}
+
 .game-title {
   font-size: clamp(1.6rem, 5vw, 2.6rem);
   line-height: 1.3;
-  margin-top: 24px;
   background: linear-gradient(180deg, #ffd9ec 0%, #ff8fc8 55%, #c86bff 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 24px rgba(200, 107, 255, 0.35);
-  filter: drop-shadow(0 2px 6px rgba(255, 143, 200, 0.3));
+  filter: drop-shadow(0 2px 10px rgba(255, 143, 200, 0.35));
+  animation: titleGlow 2.8s ease-in-out infinite alternate;
+}
+
+@keyframes titleGlow {
+  from { filter: drop-shadow(0 2px 8px rgba(255, 143, 200, 0.25)); }
+  to   { filter: drop-shadow(0 2px 18px rgba(200, 107, 255, 0.65)); }
 }
 
 .subtitle {
   margin-top: 10px;
-  color: #b8b8e0;
+  color: #c8c8ea;
   font-size: 0.95rem;
 }
 
@@ -58,7 +156,7 @@ body {
   display: flex;
   justify-content: center;
   gap: 16px;
-  margin: 28px 0 8px;
+  margin: 26px 0 8px;
 }
 
 .difficulty-btn {
@@ -68,25 +166,33 @@ body {
   font-family: inherit;
   color: #ccc;
   line-height: 1.4;
-  background: #1c1c38;
-  border: 2px solid #44446a;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.16);
   border-radius: 16px;
   cursor: pointer;
-  transition: transform 0.1s, border-color 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
+}
+
+.difficulty-btn:hover {
+  transform: translateY(-3px);
 }
 
 .difficulty-btn span {
   font-size: 0.75rem;
   letter-spacing: 2px;
-  color: #8888b0;
+  color: #9a9ac4;
 }
 
 .difficulty-btn.selected {
   color: #fff;
   border-color: #ff8fc8;
-  background: #33224a;
-  box-shadow: 0 0 16px rgba(255, 143, 200, 0.45);
-  transform: scale(1.06);
+  background: rgba(255, 143, 200, 0.14);
+  box-shadow: 0 0 22px rgba(255, 143, 200, 0.4);
+  transform: scale(1.07);
 }
 
 .difficulty-btn.selected span {
@@ -98,7 +204,12 @@ body {
   max-width: 520px;
   font-size: 0.85rem;
   line-height: 1.8;
-  color: #a8a8cc;
+  color: #b0b0d4;
+}
+
+.howto em {
+  font-style: normal;
+  color: #ff9fb8;
 }
 
 .main-btn {
@@ -112,8 +223,13 @@ body {
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 4px 0 #a03578, 0 0 20px rgba(255, 143, 200, 0.35);
-  transition: transform 0.1s;
+  box-shadow: 0 4px 0 #a03578, 0 0 26px rgba(255, 143, 200, 0.4);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+}
+
+.main-btn:hover {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 6px 0 #a03578, 0 0 36px rgba(255, 143, 200, 0.6);
 }
 
 .main-btn:active {
@@ -128,17 +244,25 @@ body {
   font-size: 0.95rem;
   font-family: inherit;
   color: #ccc;
-  background: #1c1c38;
-  border: 2px solid #44446a;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s;
+}
+
+.sub-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .highscore-box {
-  margin-top: 28px;
+  margin: 28px auto 0;
+  max-width: 300px;
+  padding: 12px 16px;
   font-size: 0.85rem;
-  color: #8888b0;
-  line-height: 1.8;
+  color: #9a9ac4;
+  line-height: 1.9;
 }
 
 /* ===== プレイ画面 ===== */
@@ -146,21 +270,67 @@ body {
   padding-top: 8px;
 }
 
+#canvas-wrap {
+  position: relative;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: radial-gradient(ellipse at 50% 40%, #12122e 0%, #08081a 70%, #030310 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
 #hud {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: min(80%, 560px);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 800px;
-  margin: 0 auto 6px;
-  padding: 0 4px;
+  gap: 12px;
+  padding: 8px 20px;
+}
+
+/* 狭い画面ではHUDをコンパクトにしてミュートボタンと重ならないようにする */
+@media (max-width: 520px) {
+  #hud {
+    padding: 6px 12px;
+    gap: 8px;
+  }
+
+  #hud-time {
+    display: none;
+  }
+
+  #hud-score {
+    font-size: 0.9rem;
+  }
+
+  #dash-gauge-outer {
+    width: 64px;
+  }
 }
 
 #hud-score {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: bold;
   letter-spacing: 1px;
   color: #ffe27a;
-  text-shadow: 0 0 8px rgba(255, 226, 122, 0.5);
+  text-shadow: 0 0 10px rgba(255, 226, 122, 0.55);
+  white-space: nowrap;
+}
+
+#hud-time {
+  font-size: 0.85rem;
+  color: #b0b0d4;
+  white-space: nowrap;
 }
 
 #hud-dash {
@@ -170,16 +340,16 @@ body {
 }
 
 .dash-label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   letter-spacing: 2px;
   color: #8fd8ff;
 }
 
 #dash-gauge-outer {
-  width: 110px;
-  height: 12px;
-  background: #1c1c38;
-  border: 1px solid #44446a;
+  width: 96px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -194,17 +364,12 @@ body {
 
 #dash-gauge-inner.ready {
   box-shadow: 0 0 10px rgba(143, 216, 255, 0.9);
+  animation: dashPulse 1.1s ease-in-out infinite alternate;
 }
 
-#game-canvas {
-  display: block;
-  width: 100%;
-  max-width: 800px;
-  height: auto;
-  margin: 0 auto;
-  background: radial-gradient(ellipse at 50% 40%, #12122e 0%, #08081a 70%, #030310 100%);
-  border: 2px solid #33335a;
-  border-radius: 10px;
+@keyframes dashPulse {
+  from { filter: brightness(1); }
+  to   { filter: brightness(1.5); }
 }
 
 /* ===== スマホ用コントロール ===== */
@@ -238,8 +403,10 @@ body {
 .dpad-btn {
   font-size: 1.1rem;
   color: #ccc;
-  background: #1c1c38;
-  border: 2px solid #44446a;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   touch-action: none;
   user-select: none;
@@ -247,7 +414,7 @@ body {
 }
 
 .dpad-btn:active {
-  background: #33224a;
+  background: rgba(255, 143, 200, 0.2);
   border-color: #ff8fc8;
 }
 
@@ -261,7 +428,7 @@ body {
   background: linear-gradient(180deg, #8fd8ff, #4fc8ff);
   border: none;
   border-radius: 50%;
-  box-shadow: 0 0 14px rgba(79, 200, 255, 0.5);
+  box-shadow: 0 0 18px rgba(79, 200, 255, 0.55);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -272,27 +439,98 @@ body {
 }
 
 /* ===== ゲームオーバー画面 ===== */
+.gameover-panel {
+  margin-top: 20px;
+}
+
 .gameover-title {
-  margin-top: 36px;
   font-size: clamp(2rem, 7vw, 3.2rem);
   letter-spacing: 4px;
   color: #ff6b9a;
-  text-shadow: 0 0 24px rgba(255, 107, 154, 0.6);
+  text-shadow: 0 0 28px rgba(255, 107, 154, 0.65);
+  animation: titleDrop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes titleDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-30px) scale(1.25);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .gameover-quote {
-  margin-top: 14px;
-  font-size: 1.05rem;
+  margin-top: 12px;
+  font-size: 1rem;
   color: #ffd9ec;
 }
 
+#rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 10px 26px;
+  background: linear-gradient(120deg, rgba(255, 143, 200, 0.18), rgba(200, 107, 255, 0.18));
+  border: 1px solid rgba(255, 180, 220, 0.45);
+  border-radius: 999px;
+  box-shadow: 0 0 24px rgba(255, 143, 200, 0.25);
+  animation: badgePop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s both;
+}
+
+@keyframes badgePop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.rank-label {
+  font-size: 0.7rem;
+  letter-spacing: 3px;
+  color: #ffb6dc;
+}
+
+#rank-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  background: linear-gradient(180deg, #fff0f8, #ffb6dc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rank-message {
+  margin: 16px auto 0;
+  max-width: 460px;
+  font-size: 1.02rem;
+  line-height: 1.9;
+  color: #ffe3f1;
+  animation: fadeUp 0.5s ease-out 0.45s both;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .result-box {
-  margin: 26px auto 0;
+  margin: 24px auto 0;
   max-width: 340px;
-  padding: 20px 16px;
-  background: #14142c;
-  border: 2px solid #33335a;
-  border-radius: 16px;
+  padding: 18px 16px;
   line-height: 1.9;
 }
 
@@ -300,27 +538,28 @@ body {
   font-size: 1.5rem;
   font-weight: bold;
   color: #ffe27a;
+  text-shadow: 0 0 12px rgba(255, 226, 122, 0.4);
 }
 
 .result-detail {
   font-size: 0.9rem;
-  color: #a8a8cc;
+  color: #b0b0d4;
 }
 
 .new-record {
   font-size: 1.05rem;
   font-weight: bold;
   color: #7affc8;
-  text-shadow: 0 0 12px rgba(122, 255, 200, 0.6);
-  animation: blink 0.8s ease-in-out infinite alternate;
+  text-shadow: 0 0 14px rgba(122, 255, 200, 0.7);
+  animation: recordBlink 0.8s ease-in-out infinite alternate;
 }
 
-@keyframes blink {
-  from { opacity: 1; }
-  to   { opacity: 0.45; }
+@keyframes recordBlink {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0.55; transform: scale(1.05); }
 }
 
 .result-highscore {
   font-size: 0.9rem;
-  color: #8888b0;
+  color: #9a9ac4;
 }

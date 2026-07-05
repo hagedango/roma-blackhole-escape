@@ -1,29 +1,11 @@
 'use strict';
 
-// ----- 画像アセット（スプライトと背景） -----
-const PLAYER_SPRITE_SOURCE = { x: 0, y: 0, width: 390, height: 700 };
-const PLAYER_SPRITE_DRAW = { width: 72, height: 126, centerYOffset: 6 };
-const PIG_METEOR_SPRITE_SOURCE = { x: 0, y: 0, width: 256, height: 256 };
-
-const playerSprite = new Image();
-playerSprite.src = "assets/romaco_player.png";
-
-const pigMeteorSprite = new Image();
-pigMeteorSprite.src = "assets/pig_meteor.png";
-
-const backgroundImages = {
-  easy: new Image(),
-  hard: new Image(),
-};
-backgroundImages.easy.src = "assets/blackhole_easy.jpg";
-backgroundImages.hard.src = "assets/blackhole_hard.jpg";
-
 /* =========================================================
- * ロマ子様のブラックホール・エスケープ
+ * ロマ子様のブラックホール・エスケープ v2（プレミアム版）
  * すべてのゲームパラメータとセリフはこの冒頭部に集約する
  * ========================================================= */
 
-// ----- 難易度別パラメータ（設計図 2-10節） -----
+// ----- 難易度別パラメータ -----
 const DIFFICULTY_PARAMS = {
   easy: {
     PLAYER_SPEED: 220,
@@ -51,7 +33,7 @@ const DIFFICULTY_PARAMS = {
     PLAYER_RADIUS: 16,
     BH_INITIAL_RADIUS: 40,
     BH_GROWTH_RATE: 6,
-    BH_GRAVITY_STRENGTH: 12000, // 吸い込み引力アップ
+    BH_GRAVITY_STRENGTH: 8000,
     METEOR_SPAWN_INTERVAL: 0.7,
     METEOR_SPEED: 220,
     STAR_SPAWN_INTERVAL: 2.5,
@@ -65,8 +47,16 @@ const DIFFICULTY_PARAMS = {
     SURGE_INTERVAL: 8,
     SURGE_WARNING: 1.5,
     SURGE_DURATION: 2.5,
-    SURGE_MULTIPLIER: 3.5, // サージ中の引力倍率アップ
+    SURGE_MULTIPLIER: 3,
   },
+};
+
+// ----- 難易度曲線（時間経過で隕石が速く・多くなる） -----
+const RAMP = {
+  SPEED_MAX_MULT: 2.2,   // 隕石速度は最大でこの倍率まで上がる
+  SPEED_RAMP_TIME: 75,   // この秒数かけて最大倍率へ近づく
+  SPAWN_RAMP_TIME: 45,   // 出現間隔の短縮ペース
+  SPAWN_MIN_RATIO: 0.3,  // 出現間隔は初期値のこの割合までしか縮まない
 };
 
 const METEOR_RADIUS_MIN = 10;
@@ -76,7 +66,7 @@ const BUBBLE_DURATION = 2.0;     // 吹き出し表示時間（秒）
 const DANGER_COOLDOWN = 5.0;     // 危険接近セリフの再発動制限（秒）
 const DANGER_DISTANCE = 80;      // BH表面からこの距離未満で危険接近（px）
 
-// ----- ロマ子様セリフ集（設計図 2-7節。コミュニティで自由に差し替えてOK！） -----
+// ----- ロマ子様セリフ集（コミュニティで自由に差し替えてOK！） -----
 const QUOTES = {
   danger: [
     'ちょっ、引っ張らないでくださる!?',
@@ -104,6 +94,235 @@ const QUOTES = {
   ],
 };
 
+// ----- スコア別 罵倒・ご褒美ランク（上から順に min以上で判定） -----
+const SCORE_RANKS = [
+  {
+    min: 150,
+    name: '銀河の覇者ブタ野郎',
+    messages: [
+      'あ、あなた…本当にあのブタ野郎ですの!? み、認めますわ…あなたは伝説ですわ…！',
+      'ここまでやるなんて…ご褒美に、わたくしの隣に立つことを特別に許可しますわ💖',
+    ],
+  },
+  {
+    min: 100,
+    name: '恒星級ブタ野郎',
+    messages: [
+      '素晴らしいですわ！ご褒美に、わたくしの微笑みを差し上げますわ💖',
+      'ふふ、よく逃げ切りましたわね。今日だけは頭を撫でて差し上げますわ',
+    ],
+  },
+  {
+    min: 50,
+    name: '彗星級ブタ野郎',
+    messages: [
+      'や、やりますわね…！べ、別に感心してなんかいませんことよ！',
+      'まぐれにしては上出来ですわ。次も同じ点を取れて初めて本物ですわよ、ブタ野郎',
+    ],
+  },
+  {
+    min: 20,
+    name: '小惑星級ブタ野郎',
+    messages: [
+      'まぁ…ブタにしては、ほんの少しだけ頑張った方ですわね',
+      'その程度で満足ですの？わたくしはまだ認めてませんわよ、ブタ野郎',
+    ],
+  },
+  {
+    min: 0,
+    name: '宇宙の塵ブタ野郎',
+    messages: [
+      '話になりませんわ！ブラックホールに謝ってらっしゃい、このブタ野郎！',
+      'フン、塵にも満たない結果ですわね…出直してらっしゃい、ブタ野郎！',
+    ],
+  },
+];
+
+/* =========================================================
+ * サウンドエンジン（Web Audio API、全部シンセ生成・音源ファイル不要）
+ * ========================================================= */
+const AudioEngine = {
+  ctx: null,
+  master: null,
+  bgmGain: null,
+  seGain: null,
+  echo: null,
+  droneNodes: [],
+  arpTimer: null,
+  nextNoteTime: 0,
+  arpStep: 0,
+  muted: localStorage.getItem('romako_bh_muted') === '1',
+
+  // AudioContextはユーザー操作後にしか作れないため、ボタンクリック時に呼ぶ
+  ensure() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.6;
+      this.master.connect(this.ctx.destination);
+
+      this.bgmGain = this.ctx.createGain();
+      this.bgmGain.gain.value = 0.16;
+      this.bgmGain.connect(this.master);
+
+      this.seGain = this.ctx.createGain();
+      this.seGain.gain.value = 0.55;
+      this.seGain.connect(this.master);
+
+      // 宇宙っぽい残響（フィードバックディレイ）
+      this.echo = this.ctx.createDelay(1);
+      this.echo.delayTime.value = 0.34;
+      const feedback = this.ctx.createGain();
+      feedback.gain.value = 0.38;
+      this.echo.connect(feedback);
+      feedback.connect(this.echo);
+      this.echo.connect(this.bgmGain);
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+
+  toggleMute() {
+    this.muted = !this.muted;
+    localStorage.setItem('romako_bh_muted', this.muted ? '1' : '0');
+    this.ensure();
+    if (this.master) this.master.gain.value = this.muted ? 0 : 0.6;
+    return this.muted;
+  },
+
+  // 単音ヘルパー（周波数スライド＋音量エンベロープ付き）
+  tone({ freq, freqEnd = null, dur = 0.2, type = 'sine', vol = 0.3, when = 0, toEcho = false }) {
+    if (!this.ctx) return;
+    const t0 = this.ctx.currentTime + when;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (freqEnd !== null) osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + dur);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(toEcho ? this.echo : this.seGain);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  },
+
+  // ノイズヘルパー（爆発・風切り音用）
+  noise({ dur = 0.3, vol = 0.4, filterType = 'lowpass', freq = 800, freqEnd = null, when = 0 }) {
+    if (!this.ctx) return;
+    const t0 = this.ctx.currentTime + when;
+    const len = Math.ceil(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(freq, t0);
+    if (freqEnd !== null) filter.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 10), t0 + dur);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(vol, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.seGain);
+    src.start(t0);
+  },
+
+  se(name) {
+    if (!this.ctx) return;
+    switch (name) {
+      case 'click':
+        this.tone({ freq: 660, freqEnd: 880, dur: 0.08, type: 'triangle', vol: 0.25 });
+        break;
+      case 'collect':
+        this.tone({ freq: 880, dur: 0.09, type: 'sine', vol: 0.3 });
+        this.tone({ freq: 1320, dur: 0.14, type: 'sine', vol: 0.3, when: 0.07 });
+        break;
+      case 'dash':
+        this.noise({ dur: 0.22, vol: 0.35, filterType: 'bandpass', freq: 2400, freqEnd: 300 });
+        break;
+      case 'explosion':
+        this.noise({ dur: 0.45, vol: 0.6, filterType: 'lowpass', freq: 2000, freqEnd: 120 });
+        this.tone({ freq: 180, freqEnd: 40, dur: 0.45, type: 'sawtooth', vol: 0.35 });
+        break;
+      case 'alarm':
+        this.tone({ freq: 523, dur: 0.13, type: 'square', vol: 0.16 });
+        this.tone({ freq: 415, dur: 0.13, type: 'square', vol: 0.16, when: 0.16 });
+        this.tone({ freq: 523, dur: 0.13, type: 'square', vol: 0.16, when: 0.32 });
+        break;
+      case 'suck':
+        this.tone({ freq: 420, freqEnd: 35, dur: 1.3, type: 'sine', vol: 0.4 });
+        this.noise({ dur: 1.2, vol: 0.18, filterType: 'lowpass', freq: 900, freqEnd: 60 });
+        break;
+      case 'record':
+        this.tone({ freq: 523, dur: 0.14, type: 'triangle', vol: 0.3 });
+        this.tone({ freq: 659, dur: 0.14, type: 'triangle', vol: 0.3, when: 0.13 });
+        this.tone({ freq: 784, dur: 0.3, type: 'triangle', vol: 0.35, when: 0.26 });
+        break;
+    }
+  },
+
+  // BGM：低音ドローン＋エコー付きアルペジオ（Aマイナーペンタ系）
+  startBGM() {
+    this.ensure();
+    if (!this.ctx || this.arpTimer) return;
+
+    const t0 = this.ctx.currentTime;
+    for (const [freq, detune] of [[55, 0], [55, 6], [110, -4]]) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 220;
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.05, t0 + 2);
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.bgmGain);
+      osc.start(t0);
+      this.droneNodes.push({ osc, gain });
+    }
+
+    const NOTES = [220, 261.63, 329.63, 392, 523.25, 392, 329.63, 261.63]; // A3 C4 E4 G4 C5 …
+    this.nextNoteTime = this.ctx.currentTime + 0.2;
+    this.arpStep = 0;
+    this.arpTimer = setInterval(() => {
+      while (this.nextNoteTime < this.ctx.currentTime + 0.35) {
+        const note = NOTES[this.arpStep % NOTES.length];
+        const when = this.nextNoteTime - this.ctx.currentTime;
+        this.tone({ freq: note, dur: 0.55, type: 'sine', vol: 0.16, when, toEcho: true });
+        this.nextNoteTime += 0.62;
+        this.arpStep++;
+      }
+    }, 120);
+  },
+
+  stopBGM() {
+    if (this.arpTimer) {
+      clearInterval(this.arpTimer);
+      this.arpTimer = null;
+    }
+    if (this.ctx) {
+      const t = this.ctx.currentTime;
+      for (const { osc, gain } of this.droneNodes) {
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(gain.gain.value, t);
+        gain.gain.linearRampToValueAtTime(0, t + 1);
+        osc.stop(t + 1.1);
+      }
+    }
+    this.droneNodes = [];
+  },
+};
+
 /* =========================================================
  * DOM要素・キャンバス
  * ========================================================= */
@@ -119,6 +338,7 @@ const screens = {
 };
 
 const scoreValueEl = document.getElementById('score-value');
+const timeValueEl = document.getElementById('time-value');
 const dashGaugeEl = document.getElementById('dash-gauge-inner');
 
 /* =========================================================
@@ -205,37 +425,6 @@ document.getElementById('btn-dash-touch').addEventListener('pointerdown', (e) =>
   dashRequested = true;
 });
 
-// キャンバスでのドラッグ・タップ移動（設計図の復元）
-function getCanvasPoint(event) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  const scaleY = H / rect.height;
-  return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
-  };
-}
-
-canvas.addEventListener('pointerdown', (event) => {
-  game.dragPointerId = event.pointerId;
-  game.dragPoint = getCanvasPoint(event);
-  canvas.setPointerCapture(event.pointerId);
-});
-
-canvas.addEventListener('pointermove', (event) => {
-  if (event.pointerId !== game.dragPointerId) return;
-  game.dragPoint = getCanvasPoint(event);
-});
-
-const stopDrag = (event) => {
-  if (event.pointerId !== game.dragPointerId) return;
-  game.dragPointerId = null;
-  game.dragPoint = null;
-};
-
-canvas.addEventListener('pointerup', stopDrag);
-canvas.addEventListener('pointercancel', stopDrag);
-
 /* =========================================================
  * ユーティリティ
  * ========================================================= */
@@ -247,8 +436,7 @@ function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
-function pickQuote(kind) {
-  const arr = QUOTES[kind];
+function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
@@ -258,7 +446,7 @@ function pickQuote(kind) {
 function initGame() {
   P = DIFFICULTY_PARAMS[selectedLevel];
 
-  game.phase = 'playing'; // 'playing' | 'dying'
+  game.phase = 'playing'; // 'playing' | 'dying' | 'done'
   game.elapsed = 0;
 
   game.player = {
@@ -280,7 +468,8 @@ function initGame() {
   game.starTimer = 0;
   game.starsCollected = 0;
 
-  game.effects = []; // かけら収集時のキラッと演出
+  game.particles = [];  // 火花・キラキラ等のパーティクル
+  game.floatTexts = []; // 「+5」などの浮き上がるスコア表示
 
   game.dash = {
     active: false,
@@ -288,25 +477,27 @@ function initGame() {
     cooldownLeft: 0,
     dirX: 0,
     dirY: 0,
-    trail: [], // 残像
+    trail: [],
   };
 
   // サージ状態: 'idle' → 'warning' → 'active' → 'idle' ...
   game.surge = { state: 'idle', timer: P.SURGE_INTERVAL - P.SURGE_WARNING };
 
-  game.bubble = null; // { text, timeLeft }
+  game.bubble = null;
   game.dangerCooldown = 0;
   game.milestones = { 30: false, 60: false };
 
-  game.death = null; // 吸い込まれ演出用
+  game.shakeTime = 0; // 衝突時の画面シェイク
+  game.shakeMag = 0;
 
-  game.dragPointerId = null;
-  game.dragPoint = null;
+  game.death = null;
 
   dashRequested = false;
 }
 
 function startGame() {
+  AudioEngine.ensure();
+  AudioEngine.startBGM();
   initGame();
   showScreen('play');
   if (animFrameId !== null) cancelAnimationFrame(animFrameId);
@@ -343,9 +534,11 @@ function update(dt) {
   updatePlayer(dt);
   updateMeteors(dt);
   updateStars(dt);
-  updateEffects(dt);
+  updateParticles(dt);
   updateBubble(dt);
   checkMilestones();
+
+  if (game.shakeTime > 0) game.shakeTime -= dt;
 
   // ブラックホール拡大
   game.bh.r += P.BH_GROWTH_RATE * dt;
@@ -354,11 +547,22 @@ function update(dt) {
   updateHud();
 }
 
+// ----- 難易度曲線：経過時間に応じた隕石の速度倍率と出現間隔 -----
+function meteorSpeedNow() {
+  const t = Math.min(game.elapsed / RAMP.SPEED_RAMP_TIME, 1);
+  return P.METEOR_SPEED * (1 + t * (RAMP.SPEED_MAX_MULT - 1));
+}
+
+function meteorIntervalNow() {
+  const interval = P.METEOR_SPAWN_INTERVAL / (1 + game.elapsed / RAMP.SPAWN_RAMP_TIME);
+  return Math.max(interval, P.METEOR_SPAWN_INTERVAL * RAMP.SPAWN_MIN_RATIO);
+}
+
 function gravityMultiplier() {
   return game.surge.state === 'active' ? P.SURGE_MULTIPLIER : 1;
 }
 
-// 引力：force = K / max(distance, 50) を中心方向へ（設計図 2-2節）
+// 引力：force = K / max(distance, 50) を中心方向へ
 function gravityForceAt(x, y) {
   const d = dist(x, y, game.bh.x, game.bh.y);
   const force = (P.BH_GRAVITY_STRENGTH / Math.max(d, 50)) * gravityMultiplier();
@@ -375,7 +579,8 @@ function updateSurge(dt) {
   if (s.state === 'idle') {
     s.state = 'warning';
     s.timer = P.SURGE_WARNING;
-    showBubble(pickQuote('surgeWarning'));
+    showBubble(pick(QUOTES.surgeWarning));
+    AudioEngine.se('alarm');
   } else if (s.state === 'warning') {
     s.state = 'active';
     s.timer = P.SURGE_DURATION;
@@ -391,7 +596,7 @@ function updateDash(dt) {
 
   if (dashRequested) {
     dashRequested = false;
-    if (!dash.active && dash.cooldownLeft <= 0) {
+    if (!dash.active && dash.cooldownLeft <= 0 && game.phase === 'playing') {
       // 移動入力があればその方向、ニュートラルならBHと逆方向へ緊急脱出
       let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
@@ -409,7 +614,12 @@ function updateDash(dt) {
       dash.cooldownLeft = P.DASH_COOLDOWN;
       dash.dirX = dx;
       dash.dirY = dy;
-      showBubble(pickQuote('dash'));
+      showBubble(pick(QUOTES.dash));
+      AudioEngine.se('dash');
+      spawnParticles(game.player.x, game.player.y, {
+        count: 10, colors: ['#8fd8ff', '#4fc8ff', '#ffffff'],
+        speedMin: 40, speedMax: 160, lifeMin: 0.2, lifeMax: 0.5, sizeMin: 1.5, sizeMax: 3,
+      });
     }
   }
 
@@ -432,20 +642,8 @@ function updatePlayer(dt) {
   } else {
     let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-
-    // キー入力がないとき、ドラッグ/タップ入力があればその方向へ移動
-    if (dx === 0 && dy === 0 && game.dragPoint) {
-      dx = game.dragPoint.x - p.x;
-      dy = game.dragPoint.y - p.y;
-      // ある程度近づいたら移動を止める（チャタリング防止）
-      if (Math.hypot(dx, dy) < 5) {
-        dx = 0;
-        dy = 0;
-      }
-    }
-
     if (dx !== 0 || dy !== 0) {
-      const len = Math.hypot(dx, dy); // 正規化
+      const len = Math.hypot(dx, dy); // 斜め移動が速くならないよう正規化
       vx = (dx / len) * P.PLAYER_SPEED;
       vy = (dy / len) * P.PLAYER_SPEED;
     }
@@ -464,7 +662,7 @@ function updatePlayer(dt) {
   if (game.dangerCooldown > 0) game.dangerCooldown -= dt;
   const surfaceDist = g.d - game.bh.r;
   if (surfaceDist < DANGER_DISTANCE && game.dangerCooldown <= 0) {
-    showBubble(pickQuote('danger'));
+    showBubble(pick(QUOTES.danger));
     game.dangerCooldown = DANGER_COOLDOWN;
   }
 }
@@ -473,11 +671,11 @@ function updateMeteors(dt) {
   game.meteorTimer -= dt;
   if (game.meteorTimer <= 0) {
     spawnMeteor();
-    game.meteorTimer = P.METEOR_SPAWN_INTERVAL;
+    game.meteorTimer = meteorIntervalNow();
   }
 
   for (const m of game.meteors) {
-    // 引力で軌道が少し曲がる（設計図 2-3節の任意実装）
+    // 引力で軌道が少し曲がる
     const g = gravityForceAt(m.x, m.y);
     m.vx += g.fx * 0.5 * dt;
     m.vy += g.fy * 0.5 * dt;
@@ -495,13 +693,14 @@ function updateMeteors(dt) {
 
 function spawnMeteor() {
   const r = randRange(METEOR_RADIUS_MIN, METEOR_RADIUS_MAX);
+  const speed = meteorSpeedNow();
   // 外周のどの辺から出すか
   const side = Math.floor(Math.random() * 4);
   let x, y;
-  if (side === 0) { x = randRange(0, W); y = -r; }        // 上
-  else if (side === 1) { x = randRange(0, W); y = H + r; } // 下
-  else if (side === 2) { x = -r; y = randRange(0, H); }    // 左
-  else { x = W + r; y = randRange(0, H); }                 // 右
+  if (side === 0) { x = randRange(0, W); y = -r; }
+  else if (side === 1) { x = randRange(0, W); y = H + r; }
+  else if (side === 2) { x = -r; y = randRange(0, H); }
+  else { x = W + r; y = randRange(0, H); }
 
   // canvas内側のランダムな点へ向かう
   const tx = randRange(W * 0.2, W * 0.8);
@@ -509,8 +708,8 @@ function spawnMeteor() {
   const d = dist(x, y, tx, ty);
   game.meteors.push({
     x, y, r,
-    vx: ((tx - x) / d) * P.METEOR_SPEED,
-    vy: ((ty - y) / d) * P.METEOR_SPEED,
+    vx: ((tx - x) / d) * speed,
+    vy: ((ty - y) / d) * speed,
   });
 }
 
@@ -523,7 +722,6 @@ function updateStars(dt) {
 
   for (const s of game.stars) s.life -= dt;
 
-  // 寿命切れ・BHに飲まれたかけらを除去
   game.stars = game.stars.filter((s) => {
     if (s.life <= 0) return false;
     if (dist(s.x, s.y, game.bh.x, game.bh.y) < game.bh.r) return false;
@@ -531,7 +729,7 @@ function updateStars(dt) {
   });
 }
 
-// BH表面から60〜200pxのドーナツ状範囲に出現（設計図 2-5節）
+// BH表面から60〜200pxのドーナツ状範囲に出現
 function spawnStar() {
   const margin = 20;
   for (let i = 0; i < 20; i++) {
@@ -544,12 +742,55 @@ function spawnStar() {
       return;
     }
   }
-  // 20回試してcanvas内に収まらなければ今回は出現なし
 }
 
-function updateEffects(dt) {
-  for (const e of game.effects) e.life -= dt;
-  game.effects = game.effects.filter((e) => e.life > 0);
+/* =========================================================
+ * パーティクル＆浮き上がりテキスト
+ * ========================================================= */
+function spawnParticles(x, y, opts) {
+  const {
+    count = 12, colors = ['#fff'],
+    speedMin = 60, speedMax = 300,
+    lifeMin = 0.4, lifeMax = 0.9,
+    sizeMin = 1.5, sizeMax = 4,
+    drag = 2.2,
+  } = opts;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = randRange(speedMin, speedMax);
+    const life = randRange(lifeMin, lifeMax);
+    game.particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life, maxLife: life,
+      size: randRange(sizeMin, sizeMax),
+      color: pick(colors),
+      drag,
+    });
+  }
+}
+
+function spawnFloatText(x, y, text) {
+  game.floatTexts.push({ x, y, text, life: 0.9, maxLife: 0.9 });
+}
+
+function updateParticles(dt) {
+  for (const pt of game.particles) {
+    pt.life -= dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    const damp = Math.max(1 - pt.drag * dt, 0);
+    pt.vx *= damp;
+    pt.vy *= damp;
+  }
+  game.particles = game.particles.filter((pt) => pt.life > 0);
+
+  for (const ft of game.floatTexts) {
+    ft.life -= dt;
+    ft.y -= 44 * dt;
+  }
+  game.floatTexts = game.floatTexts.filter((ft) => ft.life > 0);
 }
 
 function updateBubble(dt) {
@@ -567,7 +808,7 @@ function checkMilestones() {
   for (const sec of [30, 60]) {
     if (!game.milestones[sec] && game.elapsed >= sec) {
       game.milestones[sec] = true;
-      showBubble(pickQuote('survive'));
+      showBubble(pick(QUOTES.survive));
     }
   }
 }
@@ -585,30 +826,35 @@ function checkCollisions() {
     if (dist(p.x, p.y, s.x, s.y) < p.r + s.r) {
       game.stars.splice(i, 1);
       game.starsCollected++;
-      game.effects.push({ x: s.x, y: s.y, life: 0.4, maxLife: 0.4 });
-      showBubble(pickQuote('collect'));
+      showBubble(pick(QUOTES.collect));
+      AudioEngine.se('collect');
+      spawnFloatText(s.x, s.y - 14, '+' + P.STAR_BONUS);
+      spawnParticles(s.x, s.y, {
+        count: 14, colors: ['#ffe27a', '#fff3c0', '#ffffff'],
+        speedMin: 40, speedMax: 220, lifeMin: 0.3, lifeMax: 0.7, sizeMin: 1.5, sizeMax: 3.5,
+      });
     }
   }
 
   // ブラックホールに吸い込まれた
   if (dist(p.x, p.y, game.bh.x, game.bh.y) < p.r + game.bh.r) {
-    beginDeath();
+    beginDeath('bh');
     return;
   }
 
   // 隕石に衝突
   for (const m of game.meteors) {
     if (dist(p.x, p.y, m.x, m.y) < p.r + m.r) {
-      beginDeath();
+      beginDeath('meteor');
       return;
     }
   }
 }
 
 /* =========================================================
- * 吸い込まれ演出（設計図 2-8節）
+ * 吸い込まれ演出（衝突→火花→螺旋吸い込み）
  * ========================================================= */
-function beginDeath() {
+function beginDeath(cause) {
   const p = game.player;
   const d = dist(p.x, p.y, game.bh.x, game.bh.y);
   game.phase = 'dying';
@@ -616,7 +862,20 @@ function beginDeath() {
     t: 0,
     startDist: Math.max(d, 1),
     startAngle: Math.atan2(p.y - game.bh.y, p.x - game.bh.x),
+    scale: 1,
   };
+
+  if (cause === 'meteor') {
+    // 美しい火花エフェクト＋爆発音＋画面シェイク
+    spawnParticles(p.x, p.y, {
+      count: 32, colors: ['#ffd27a', '#ff9f5a', '#ff6b9a', '#ffffff'],
+      speedMin: 80, speedMax: 420, lifeMin: 0.4, lifeMax: 1.0, sizeMin: 1.5, sizeMax: 4.5,
+    });
+    AudioEngine.se('explosion');
+    game.shakeTime = 0.35;
+    game.shakeMag = 9;
+  }
+  AudioEngine.se('suck');
 }
 
 function updateDeath(dt) {
@@ -626,10 +885,21 @@ function updateDeath(dt) {
 
   // 螺旋を描きながらBH中心へ（半径縮小＋回転）
   const r = dth.startDist * (1 - progress);
-  const angle = dth.startAngle + progress * Math.PI * 4; // 2回転
+  const angle = dth.startAngle + progress * Math.PI * 4;
   game.player.x = game.bh.x + Math.cos(angle) * r;
   game.player.y = game.bh.y + Math.sin(angle) * r;
-  game.death.scale = 1 - progress;
+  dth.scale = 1 - progress;
+
+  // 吸い込まれながら紫の粒子を撒き散らす
+  if (Math.random() < 0.7) {
+    spawnParticles(game.player.x, game.player.y, {
+      count: 2, colors: ['#c86bff', '#ff8fc8', '#8fd8ff'],
+      speedMin: 20, speedMax: 120, lifeMin: 0.3, lifeMax: 0.7, sizeMin: 1, sizeMax: 3,
+    });
+  }
+
+  updateParticles(dt);
+  if (game.shakeTime > 0) game.shakeTime -= dt;
 
   if (progress >= 1) {
     game.phase = 'done';
@@ -637,18 +907,34 @@ function updateDeath(dt) {
   }
 }
 
+// スコアに応じたランクを返す
+function rankForScore(score) {
+  for (const rank of SCORE_RANKS) {
+    if (score >= rank.min) return rank;
+  }
+  return SCORE_RANKS[SCORE_RANKS.length - 1];
+}
+
 function finishGame() {
   if (animFrameId !== null) {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
+  AudioEngine.stopBGM();
 
   const score = currentScore();
   const prevHigh = loadHighscore(selectedLevel);
   const isNewRecord = score > prevHigh;
-  if (isNewRecord) saveHighscore(selectedLevel, score);
+  if (isNewRecord) {
+    saveHighscore(selectedLevel, score);
+    AudioEngine.se('record');
+  }
 
-  document.getElementById('gameover-quote').textContent = pickQuote('gameover');
+  const rank = rankForScore(score);
+  document.getElementById('rank-name').textContent = rank.name;
+  document.getElementById('rank-message').textContent = pick(rank.messages);
+
+  document.getElementById('gameover-quote').textContent = pick(QUOTES.gameover);
   document.getElementById('final-score').textContent = score;
   document.getElementById('final-time').textContent = game.elapsed.toFixed(1);
   document.getElementById('final-stars').textContent = game.starsCollected;
@@ -665,34 +951,46 @@ function draw() {
   ctx.clearRect(0, 0, W, H);
   ctx.save();
 
-  // サージ予兆・発動中は画面を揺らす
+  // サージ予兆・発動中と衝突時は画面を揺らす
+  let shakeX = 0;
+  let shakeY = 0;
   if (game.surge.state === 'warning' || game.surge.state === 'active') {
-    ctx.translate(randRange(-3, 3), randRange(-3, 3));
+    shakeX += randRange(-3, 3);
+    shakeY += randRange(-3, 3);
   }
+  if (game.shakeTime > 0) {
+    const mag = game.shakeMag * (game.shakeTime / 0.35);
+    shakeX += randRange(-mag, mag);
+    shakeY += randRange(-mag, mag);
+  }
+  ctx.translate(shakeX, shakeY);
 
-  drawBackgroundImage();
   drawStarsBackground();
   drawBlackHole();
   drawStarsItems();
   drawMeteors();
-  drawEffects();
   drawDashTrail();
   drawPlayer();
+  drawParticles();
+  drawFloatTexts();
   drawBubble();
 
   ctx.restore();
 }
 
-// 背景の小さな星（固定シードの簡易スターフィールド）
+// 背景の小さな星（ゆっくり明滅）
 const bgStars = Array.from({ length: 60 }, () => ({
   x: Math.random() * W,
   y: Math.random() * H,
   r: Math.random() * 1.5 + 0.5,
+  phase: Math.random() * Math.PI * 2,
 }));
 
 function drawStarsBackground() {
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  const t = performance.now() / 1000;
   for (const s of bgStars) {
+    const alpha = 0.25 + 0.3 * (0.5 + 0.5 * Math.sin(t * 1.5 + s.phase));
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fill();
@@ -722,11 +1020,22 @@ function drawBlackHole() {
   ctx.fillStyle = grad;
   ctx.fill();
 
+  // 降着円盤ふうの回転リング
+  const t = performance.now() / 1000;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t * 0.6);
+  ctx.strokeStyle = surging ? 'rgba(255,150,190,0.5)' : 'rgba(180,130,255,0.35)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.35, r * 1.08, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
   // サージ中は吸い込み線を描く
   if (surging) {
     ctx.strokeStyle = 'rgba(255,120,180,0.35)';
     ctx.lineWidth = 2;
-    const t = performance.now() / 1000;
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2 + t * 2;
       ctx.beginPath();
@@ -749,14 +1058,12 @@ function drawStarsItems() {
     if (s.life < 2 && Math.floor(s.life * 6) % 2 === 0) continue;
     ctx.save();
     ctx.translate(s.x, s.y);
-    // 光条（十字）
     ctx.strokeStyle = 'rgba(255,226,122,0.8)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-s.r * 1.4, 0); ctx.lineTo(s.r * 1.4, 0);
     ctx.moveTo(0, -s.r * 1.4); ctx.lineTo(0, s.r * 1.4);
     ctx.stroke();
-    // 本体
     ctx.beginPath();
     ctx.arc(0, 0, s.r * 0.7, 0, Math.PI * 2);
     ctx.fillStyle = '#ffe27a';
@@ -769,73 +1076,43 @@ function drawStarsItems() {
 
 function drawMeteors() {
   for (const m of game.meteors) {
-    if (pigMeteorSprite.complete && pigMeteorSprite.naturalWidth > 0) {
-      drawPigMeteor(m);
-    } else {
-      ctx.beginPath();
-      ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-      ctx.fillStyle = '#9a8f85';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
-      ctx.fillStyle = '#b8ada0';
-      ctx.fill();
-    }
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#9a8f85';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
+    ctx.fillStyle = '#b8ada0';
+    ctx.fill();
   }
 }
 
-function drawPigMeteor(meteor) {
-  const speedAngle = Math.atan2(meteor.vy, meteor.vx);
-  const drawSize = meteor.r * 3.2;
-
+function drawParticles() {
   ctx.save();
-  ctx.translate(meteor.x, meteor.y);
-  ctx.rotate(speedAngle);
-
-  // トレイル
-  const trail = ctx.createLinearGradient(-drawSize * 1.05, 0, -drawSize * 0.15, 0);
-  trail.addColorStop(0, "rgba(255, 80, 80, 0)");
-  trail.addColorStop(0.45, "rgba(255, 127, 57, 0.32)");
-  trail.addColorStop(1, "rgba(255, 214, 102, 0.62)");
-  ctx.fillStyle = trail;
-  ctx.beginPath();
-  ctx.moveTo(-drawSize * 1.05, 0);
-  ctx.lineTo(-drawSize * 0.18, -meteor.r * 0.78);
-  ctx.lineTo(-drawSize * 0.04, 0);
-  ctx.lineTo(-drawSize * 0.18, meteor.r * 0.78);
-  ctx.closePath();
-  ctx.fill();
-
-  // 自転
-  const rotation = (meteor.vx + meteor.vy) * 0.01 * (performance.now() * 0.01);
-  ctx.rotate(rotation);
-
-  ctx.shadowColor = "rgba(0, 0, 0, 0.42)";
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetY = 5;
-  ctx.drawImage(
-    pigMeteorSprite,
-    PIG_METEOR_SPRITE_SOURCE.x,
-    PIG_METEOR_SPRITE_SOURCE.y,
-    PIG_METEOR_SPRITE_SOURCE.width,
-    PIG_METEOR_SPRITE_SOURCE.height,
-    -drawSize / 2,
-    -drawSize / 2,
-    drawSize,
-    drawSize
-  );
+  ctx.globalCompositeOperation = 'lighter'; // 加算合成で光って見せる
+  for (const pt of game.particles) {
+    const alpha = Math.max(pt.life / pt.maxLife, 0);
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+    ctx.fillStyle = pt.color;
+    ctx.fill();
+  }
   ctx.restore();
 }
 
-function drawEffects() {
-  for (const e of game.effects) {
-    const progress = 1 - e.life / e.maxLife;
-    ctx.beginPath();
-    ctx.arc(e.x, e.y, 10 + progress * 30, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,226,122,${1 - progress})`;
-    ctx.lineWidth = 3;
-    ctx.stroke();
+function drawFloatTexts() {
+  ctx.save();
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  for (const ft of game.floatTexts) {
+    ctx.globalAlpha = Math.max(ft.life / ft.maxLife, 0);
+    ctx.fillStyle = '#ffe27a';
+    ctx.shadowColor = '#ffe27a';
+    ctx.shadowBlur = 8;
+    ctx.fillText(ft.text, ft.x, ft.y);
   }
+  ctx.restore();
 }
 
 function drawDashTrail() {
@@ -847,45 +1124,14 @@ function drawDashTrail() {
   }
 }
 
-// プレイヤー描画は画像差し替えを想定して専用関数に分離（設計図 3章）
+// プレイヤー描画は画像差し替えを想定して専用関数に分離
 function drawPlayer() {
   const p = game.player;
   const scale = game.phase === 'dying' ? Math.max(game.death.scale ?? 1, 0) : 1;
-  if (scale <= 0.05) return;
-
-  if (playerSprite.complete && playerSprite.naturalWidth > 0) {
-    const drawWidth = PLAYER_SPRITE_DRAW.width * scale;
-    const drawHeight = PLAYER_SPRITE_DRAW.height * scale;
-    const dx = -drawWidth / 2;
-    const dy = -drawHeight / 2 - (PLAYER_SPRITE_DRAW.centerYOffset * scale);
-
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    if (game.phase === 'dying' && game.death) {
-      const progress = Math.min(game.death.t / DEATH_ANIM_DURATION, 1);
-      ctx.rotate(progress * Math.PI * 4);
-    }
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    ctx.shadowBlur = 14 * scale;
-    ctx.shadowOffsetY = 8 * scale;
-    ctx.drawImage(
-      playerSprite,
-      PLAYER_SPRITE_SOURCE.x,
-      PLAYER_SPRITE_SOURCE.y,
-      PLAYER_SPRITE_SOURCE.width,
-      PLAYER_SPRITE_SOURCE.height,
-      dx,
-      dy,
-      drawWidth,
-      drawHeight
-    );
-    ctx.restore();
-    return;
-  }
-
   const r = p.r * scale;
+  if (r <= 0.5) return;
+
   ctx.save();
-  // 本体（ピンクの円＝ロマ子様プレースホルダー）
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
   ctx.fillStyle = '#ff8fc8';
@@ -896,7 +1142,6 @@ function drawPlayer() {
   ctx.strokeStyle = '#ffd9ec';
   ctx.lineWidth = 2;
   ctx.stroke();
-  // 簡易お顔
   if (scale > 0.4) {
     ctx.fillStyle = '#5a2040';
     ctx.beginPath();
@@ -924,16 +1169,13 @@ function drawBubble() {
   const bh = 28;
   let bx = p.x - bw / 2;
   let by = p.y - p.r - bh - 14;
-  // 画面内に収める
   bx = Math.max(4, Math.min(W - bw - 4, bx));
   by = Math.max(4, by);
 
-  // 吹き出し本体
   ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.beginPath();
   ctx.roundRect(bx, by, bw, bh, 10);
   ctx.fill();
-  // しっぽ
   ctx.beginPath();
   ctx.moveTo(p.x - 5, by + bh);
   ctx.lineTo(p.x + 5, by + bh);
@@ -952,6 +1194,7 @@ function drawBubble() {
  * ========================================================= */
 function updateHud() {
   scoreValueEl.textContent = currentScore();
+  timeValueEl.textContent = game.elapsed.toFixed(1);
 
   const dash = game.dash;
   const ratio = dash.cooldownLeft > 0 ? 1 - dash.cooldownLeft / P.DASH_COOLDOWN : 1;
@@ -960,7 +1203,7 @@ function updateHud() {
 }
 
 /* =========================================================
- * UIイベント（難易度選択・画面遷移）
+ * UIイベント（難易度選択・画面遷移・ミュート）
  * ========================================================= */
 document.querySelectorAll('.difficulty-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -968,33 +1211,42 @@ document.querySelectorAll('.difficulty-btn').forEach((btn) => {
     document.querySelectorAll('.difficulty-btn').forEach((b) => {
       b.classList.toggle('selected', b === btn);
     });
+    AudioEngine.ensure();
+    AudioEngine.se('click');
   });
 });
 
-document.getElementById('btn-start').addEventListener('click', startGame);
-document.getElementById('btn-retry').addEventListener('click', startGame);
+document.getElementById('btn-start').addEventListener('click', () => {
+  AudioEngine.ensure();
+  AudioEngine.se('click');
+  startGame();
+});
+
+document.getElementById('btn-retry').addEventListener('click', () => {
+  AudioEngine.ensure();
+  AudioEngine.se('click');
+  startGame();
+});
+
 document.getElementById('btn-title').addEventListener('click', () => {
+  AudioEngine.ensure();
+  AudioEngine.se('click');
   refreshTitleHighscores();
   showScreen('title');
 });
 
+const muteBtn = document.getElementById('btn-mute');
+
+function refreshMuteIcon() {
+  muteBtn.textContent = AudioEngine.muted ? '🔇' : '🔊';
+}
+
+muteBtn.addEventListener('click', () => {
+  AudioEngine.toggleMute();
+  refreshMuteIcon();
+});
+
 // 初期表示
+refreshMuteIcon();
 refreshTitleHighscores();
 showScreen('title');
-
-function drawBackgroundImage() {
-  const bg = backgroundImages[selectedLevel];
-  if (bg && bg.complete && bg.naturalWidth > 0) {
-    drawImageCover(bg, 0, 0, W, H);
-  }
-}
-
-function drawImageCover(image, x, y, width, height) {
-  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-  const sourceWidth = width / scale;
-  const sourceHeight = height / scale;
-  const sourceX = (image.naturalWidth - sourceWidth) / 2;
-  const sourceY = (image.naturalHeight - sourceHeight) / 2;
-
-  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
-}
