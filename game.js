@@ -61,79 +61,83 @@ const RAMP = {
 
 const METEOR_RADIUS_MIN = 10;
 const METEOR_RADIUS_MAX = 18;
+const PLAYER_DRAW_SCALE = 1.5; // ロマ子様アイコンの見た目だけ拡大（当たり判定はPLAYER_RADIUSのまま＝プレイヤー有利）
 const DEATH_ANIM_DURATION = 1.5; // 吸い込まれ演出の長さ（秒）
 const BUBBLE_DURATION = 2.0;     // 吹き出し表示時間（秒）
 const DANGER_COOLDOWN = 5.0;     // 危険接近セリフの再発動制限（秒）
 const DANGER_DISTANCE = 80;      // BH表面からこの距離未満で危険接近（px）
 
-// ----- ロマ子様セリフ集（コミュニティで自由に差し替えてOK！） -----
+// ----- ロマ子様セリフ集（罵尻ロマ子口調。コミュニティで自由に差し替えてOK！） -----
+// 口調ルール：一人称「ロマ子様」／語尾「〜だじょ！」「〜のだわわ！」／
+// 相槌「へーんだ！！」「んむ！！」／ファンは「ブタ野郎」「ブタ共」「テメェら」
 const QUOTES = {
   danger: [
-    'ちょっ、引っ張らないでくださる!?',
-    '吸わないでちょうだい！',
+    'ちょっ、引っ張んなだじょ！！',
+    'ロマ子様を吸えると思ってんのかテメェ！！',
   ],
   collect: [
-    'いただきですわ✨',
-    '当然の報酬ですわね',
+    'んむ！！当然の報酬だじょ！',
+    'いただきなのだわわ！',
   ],
   dash: [
-    '失礼しますわよ！',
-    'ロマ子様、緊急回避！',
+    'へーんだ！！捕まるかっつーの！',
+    'ロマ子様、緊急回避だじょ！',
   ],
   surgeWarning: [
-    'な、なんか嫌な予感がしますわ…',
-    '来ますわよ…！',
+    'な、なんか嫌な予感がすんだじょ…',
+    '来るぞ…！ロマ子様は慌ててねぇかんな！！',
   ],
   survive: [
-    'まだまだ余裕ですわ',
-    '宇宙もわたくしの前ではこの程度',
+    'まだまだ余裕だじょ！',
+    '宇宙もロマ子様の前ではこの程度なのだわわ！',
   ],
   gameover: [
-    '覚えてらっしゃい…！',
-    'こ、今回は引き分けですわ…',
+    'お、覚えてろよぉ…！',
+    'こ、今回は引き分けだかんな！！',
   ],
 };
 
 // ----- スコア別 罵倒・ご褒美ランク（上から順に min以上で判定） -----
+// 低スコア＝強い罵倒（ドS）、中間＝優しい罵倒（ツンデレ）、高スコア＝照れ隠し＆出荷宣告
 const SCORE_RANKS = [
   {
     min: 150,
     name: '銀河の覇者ブタ野郎',
     messages: [
-      'あ、あなた…本当にあのブタ野郎ですの!? み、認めますわ…あなたは伝説ですわ…！',
-      'ここまでやるなんて…ご褒美に、わたくしの隣に立つことを特別に許可しますわ💖',
+      'テメェ…本当にあのブタ野郎かだじょ!? み、認めてやんよ…おめぇは伝説なのだわわ…！',
+      'ここまで来たら立派なマゾ豚だじょ！！最高品質で出荷させてやんよ！！',
     ],
   },
   {
     min: 100,
     name: '恒星級ブタ野郎',
     messages: [
-      '素晴らしいですわ！ご褒美に、わたくしの微笑みを差し上げますわ💖',
-      'ふふ、よく逃げ切りましたわね。今日だけは頭を撫でて差し上げますわ',
+      'んむ！！見事だじょ！ご褒美にロマ子様の笑顔をくれてやんよ！',
+      'ブタでもやればできんだな…ちょっとは見直しただじょ！',
     ],
   },
   {
     min: 50,
     name: '彗星級ブタ野郎',
     messages: [
-      'や、やりますわね…！べ、別に感心してなんかいませんことよ！',
-      'まぐれにしては上出来ですわ。次も同じ点を取れて初めて本物ですわよ、ブタ野郎',
+      'や、やるじゃねぇか…！へーんだ！！別に見直してねぇんだかんな！！',
+      'まぐれにしては上出来だじょ。次も同じ点取れたら本物と認めてやんよ、ブタ野郎！',
     ],
   },
   {
     min: 20,
     name: '小惑星級ブタ野郎',
     messages: [
-      'まぁ…ブタにしては、ほんの少しだけ頑張った方ですわね',
-      'その程度で満足ですの？わたくしはまだ認めてませんわよ、ブタ野郎',
+      '…ったく、ブタのくせに粘りやがって…悪くねぇだじょ。',
+      'その程度で満足してんじゃねぇぞ？出荷にはまだまだ程遠いんだかんな！',
     ],
   },
   {
     min: 0,
     name: '宇宙の塵ブタ野郎',
     messages: [
-      '話になりませんわ！ブラックホールに謝ってらっしゃい、このブタ野郎！',
-      'フン、塵にも満たない結果ですわね…出直してらっしゃい、ブタ野郎！',
+      '話になんねぇだじょ！！ブラックホールに謝ってこいやブタ野郎！！',
+      'へーんだ！！塵以下の結果を見せられたロマ子様の身にもなれっつーの！出直してこい！',
     ],
   },
 ];
@@ -340,6 +344,8 @@ const screens = {
 const scoreValueEl = document.getElementById('score-value');
 const timeValueEl = document.getElementById('time-value');
 const dashGaugeEl = document.getElementById('dash-gauge-inner');
+const dashGaugeOuterEl = document.getElementById('dash-gauge-outer');
+const dashLabelEl = document.querySelector('.dash-label');
 
 // ----- 画像アセットの事前ロード -----
 const imgPlayer = new Image();
@@ -985,7 +991,50 @@ function finishGame() {
   document.getElementById('final-highscore').textContent = Math.max(score, prevHigh);
   document.getElementById('new-record').classList.toggle('hidden', !isNewRecord);
 
+  prepareResultMeters();
   showScreen('gameover');
+  playResultMeters();
+  spawnRecordSparkles(isNewRecord);
+}
+
+// ----- リザルトメーター演出（表示後にスーッと満ちる） -----
+const METER_TIME_FULL = 120; // 生存120秒でTIMEメーターが満タン
+const METER_STAR_FULL = 20;  // かけら20個でSTARメーターが満タン
+
+function prepareResultMeters() {
+  for (const id of ['meter-time', 'meter-stars']) {
+    const el = document.getElementById(id);
+    el.style.transition = 'none';
+    el.style.width = '0%';
+    void el.offsetWidth; // リセットを即時反映してからtransitionを戻す
+    el.style.transition = '';
+  }
+}
+
+function playResultMeters() {
+  const timeRatio = Math.min(game.elapsed / METER_TIME_FULL, 1);
+  const starRatio = Math.min(game.starsCollected / METER_STAR_FULL, 1);
+  // 画面表示（display切替）の反映後に幅をセットしないとtransitionが効かない
+  setTimeout(() => {
+    document.getElementById('meter-time').style.width = (timeRatio * 100).toFixed(0) + '%';
+    document.getElementById('meter-stars').style.width = (starRatio * 100).toFixed(0) + '%';
+  }, 80);
+}
+
+// ----- NEW RECORD用の金色スパークル（DOMパーティクル） -----
+function spawnRecordSparkles(isNewRecord) {
+  const wrap = document.getElementById('record-wrap');
+  wrap.querySelectorAll('.gold-sparkle').forEach((el) => el.remove());
+  if (!isNewRecord) return;
+  for (let i = 0; i < 16; i++) {
+    const sp = document.createElement('span');
+    sp.className = 'gold-sparkle';
+    sp.style.left = (4 + Math.random() * 92) + '%';
+    sp.style.top = (Math.random() * 90) + '%';
+    sp.style.animationDelay = (Math.random() * 1.6).toFixed(2) + 's';
+    sp.style.animationDuration = (1.2 + Math.random() * 1.2).toFixed(2) + 's';
+    wrap.appendChild(sp);
+  }
 }
 
 /* =========================================================
@@ -1174,7 +1223,7 @@ function drawFloatTexts() {
 function drawDashTrail() {
   for (const t of game.dash.trail) {
     ctx.beginPath();
-    ctx.arc(t.x, t.y, game.player.r * 0.8, 0, Math.PI * 2);
+    ctx.arc(t.x, t.y, game.player.r * PLAYER_DRAW_SCALE * 0.8, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(143,216,255,${t.life})`;
     ctx.fill();
   }
@@ -1184,7 +1233,7 @@ function drawDashTrail() {
 function drawPlayer() {
   const p = game.player;
   const scale = game.phase === 'dying' ? Math.max(game.death.scale ?? 1, 0) : 1;
-  const r = p.r * scale;
+  const r = p.r * PLAYER_DRAW_SCALE * scale;
   if (r <= 0.5) return;
 
   ctx.save();
@@ -1238,7 +1287,7 @@ function drawBubble() {
   const bw = tw + 20;
   const bh = 28;
   let bx = p.x - bw / 2;
-  let by = p.y - p.r - bh - 14;
+  let by = p.y - p.r * PLAYER_DRAW_SCALE - bh - 14;
   bx = Math.max(4, Math.min(W - bw - 4, bx));
   by = Math.max(4, by);
 
@@ -1262,14 +1311,28 @@ function drawBubble() {
 /* =========================================================
  * HUD更新
  * ========================================================= */
+let dashWasReady = false; // READYになった瞬間のフラッシュ検出用
+
 function updateHud() {
   scoreValueEl.textContent = currentScore();
   timeValueEl.textContent = game.elapsed.toFixed(1);
 
   const dash = game.dash;
   const ratio = dash.cooldownLeft > 0 ? 1 - dash.cooldownLeft / P.DASH_COOLDOWN : 1;
+  const ready = ratio >= 1;
   dashGaugeEl.style.width = (ratio * 100).toFixed(0) + '%';
-  dashGaugeEl.classList.toggle('ready', ratio >= 1);
+  dashGaugeEl.classList.toggle('ready', ready);
+
+  // READYの立ち上がりで「パッ」と光るフラッシュを一度だけ再生
+  if (ready && !dashWasReady) {
+    dashGaugeOuterEl.classList.remove('flash');
+    void dashGaugeOuterEl.offsetWidth; // アニメーション再トリガーのためのリフロー
+    dashGaugeOuterEl.classList.add('flash');
+  }
+  dashWasReady = ready;
+
+  dashLabelEl.textContent = ready ? 'READY' : 'DASH';
+  dashLabelEl.classList.toggle('ready', ready);
 }
 
 /* =========================================================
