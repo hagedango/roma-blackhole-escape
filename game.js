@@ -9,7 +9,7 @@
 const DIFFICULTY_PARAMS = {
   easy: {
     PLAYER_SPEED: 220,
-    PLAYER_RADIUS: 16,
+    PLAYER_RADIUS: 24, // ロマ子様アイコンを大きく（視認性UP）
     BH_INITIAL_RADIUS: 30,
     BH_GROWTH_RATE: 3,
     BH_GRAVITY_STRENGTH: 4000,
@@ -30,10 +30,10 @@ const DIFFICULTY_PARAMS = {
   },
   hard: {
     PLAYER_SPEED: 200,
-    PLAYER_RADIUS: 16,
+    PLAYER_RADIUS: 24, // ロマ子様アイコンを大きく
     BH_INITIAL_RADIUS: 40,
     BH_GROWTH_RATE: 6,
-    BH_GRAVITY_STRENGTH: 8000,
+    BH_GRAVITY_STRENGTH: 15000, // 吸引力を超絶強化（8000 -> 15000）
     METEOR_SPAWN_INTERVAL: 0.7,
     METEOR_SPEED: 220,
     STAR_SPAWN_INTERVAL: 2.5,
@@ -392,6 +392,7 @@ function refreshTitleHighscores() {
  * 入力（キーボード＋タッチ）
  * ========================================================= */
 const input = { up: false, down: false, left: false, right: false };
+const pointerInput = { active: false, x: 0, y: 0 };
 let dashRequested = false;
 
 const KEY_MAP = {
@@ -431,6 +432,33 @@ document.getElementById('btn-dash-touch').addEventListener('pointerdown', (e) =>
   e.preventDefault();
   dashRequested = true;
 });
+
+// キャンバス直接タッチ・マウスクリックドラッグによる移動
+canvas.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  pointerInput.active = true;
+  updatePointerPos(e);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (pointerInput.active) {
+    e.preventDefault();
+    updatePointerPos(e);
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  pointerInput.active = false;
+});
+window.addEventListener('pointercancel', () => {
+  pointerInput.active = false;
+});
+
+function updatePointerPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  pointerInput.x = ((e.clientX - rect.left) / rect.width) * W;
+  pointerInput.y = ((e.clientY - rect.top) / rect.height) * H;
+}
 
 /* =========================================================
  * ユーティリティ
@@ -646,6 +674,15 @@ function updatePlayer(dt) {
   if (game.dash.active) {
     vx = game.dash.dirX * P.PLAYER_SPEED * P.DASH_SPEED_MULTIPLIER;
     vy = game.dash.dirY * P.PLAYER_SPEED * P.DASH_SPEED_MULTIPLIER;
+  } else if (pointerInput.active) {
+    // タッチ・ドラッグ位置へ滑らかに追従
+    const dx = pointerInput.x - p.x;
+    const dy = pointerInput.y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 4) { // 指の微細なブレで振動するのを防止
+      vx = (dx / d) * P.PLAYER_SPEED;
+      vy = (dy / d) * P.PLAYER_SPEED;
+    }
   } else {
     let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
