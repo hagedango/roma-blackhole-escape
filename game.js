@@ -341,6 +341,13 @@ const scoreValueEl = document.getElementById('score-value');
 const timeValueEl = document.getElementById('time-value');
 const dashGaugeEl = document.getElementById('dash-gauge-inner');
 
+// ----- 画像アセットの事前ロード -----
+const imgPlayer = new Image();
+imgPlayer.src = 'assets/romaco_player.png';
+
+const imgMeteor = new Image();
+imgMeteor.src = 'assets/pig_meteor.png';
+
 /* =========================================================
  * 全体の状態
  * ========================================================= */
@@ -1076,14 +1083,26 @@ function drawStarsItems() {
 
 function drawMeteors() {
   for (const m of game.meteors) {
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-    ctx.fillStyle = '#9a8f85';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(m.x - m.r * 0.25, m.y - m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
-    ctx.fillStyle = '#b8ada0';
-    ctx.fill();
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    // 隕石（ブタ）をゆっくり自転させる
+    const t = performance.now() / 1000;
+    ctx.rotate(t * 0.5 + m.r);
+
+    if (imgMeteor.complete && imgMeteor.naturalWidth !== 0) {
+      ctx.drawImage(imgMeteor, -m.r, -m.r, m.r * 2, m.r * 2);
+    } else {
+      // 従来のベクター描画フォールバック
+      ctx.beginPath();
+      ctx.arc(0, 0, m.r, 0, Math.PI * 2);
+      ctx.fillStyle = '#9a8f85';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-m.r * 0.25, -m.r * 0.25, m.r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = '#b8ada0';
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }
 
@@ -1132,27 +1151,41 @@ function drawPlayer() {
   if (r <= 0.5) return;
 
   ctx.save();
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#ff8fc8';
-  ctx.shadowColor = '#ff8fc8';
-  ctx.shadowBlur = 10;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#ffd9ec';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  if (scale > 0.4) {
-    ctx.fillStyle = '#5a2040';
+  ctx.translate(p.x, p.y);
+  
+  // 螺旋吸い込まれ時は回転を加える
+  if (game.phase === 'dying') {
+    const progress = game.death.t / DEATH_ANIM_DURATION;
+    ctx.rotate(progress * Math.PI * 6);
+  }
+
+  if (imgPlayer.complete && imgPlayer.naturalWidth !== 0) {
+    // 画像オブジェクトで描画
+    ctx.drawImage(imgPlayer, -r, -r, r * 2, r * 2);
+  } else {
+    // 従来のベクター描画フォールバック
     ctx.beginPath();
-    ctx.arc(p.x - r * 0.3, p.y - r * 0.15, r * 0.12, 0, Math.PI * 2);
-    ctx.arc(p.x + r * 0.3, p.y - r * 0.15, r * 0.12, 0, Math.PI * 2);
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff8fc8';
+    ctx.shadowColor = '#ff8fc8';
+    ctx.shadowBlur = 10;
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y + r * 0.2, r * 0.25, 0.15 * Math.PI, 0.85 * Math.PI);
-    ctx.strokeStyle = '#5a2040';
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffd9ec';
     ctx.lineWidth = 2;
     ctx.stroke();
+    if (scale > 0.4) {
+      ctx.fillStyle = '#5a2040';
+      ctx.beginPath();
+      ctx.arc(-r * 0.3, -r * 0.15, r * 0.12, 0, Math.PI * 2);
+      ctx.arc(r * 0.3, -r * 0.15, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, r * 0.2, r * 0.25, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.strokeStyle = '#5a2040';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
