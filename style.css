@@ -788,6 +788,11 @@ body {
   box-shadow: 0 0 10px rgba(255, 226, 122, 0.7);
 }
 
+.meter-graze {
+  background: linear-gradient(90deg, #ff8fc8, #ffc2e2);
+  box-shadow: 0 0 10px rgba(255, 143, 200, 0.7);
+}
+
 /* NEW RECORD：ネオン看板の激しいフリッカー＋金色スパークルの舞台 */
 #record-wrap {
   position: relative;

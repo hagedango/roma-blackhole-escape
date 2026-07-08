@@ -61,7 +61,16 @@ const RAMP = {
 
 const METEOR_RADIUS_MIN = 10;
 const METEOR_RADIUS_MAX = 18;
-const PLAYER_DRAW_SCALE = 1.5; // ロマ子様アイコンの見た目だけ拡大（当たり判定はPLAYER_RADIUSのまま＝プレイヤー有利）
+const PLAYER_DRAW_SCALE = 1.5; // ロマ子様アイコンの見た目の拡大率（当たり判定はplayer.rで別管理）
+
+// ----- 肥育・ダイエット・ギリギリアウト（v3ゲームメカニクス） -----
+const FATTEN_PER_STAR = 2;      // かけら1個で太る量（当たり判定 px）
+const PLAYER_RADIUS_MAX = 40;   // 肥育の上限（これ以上は太らない）
+const FAT_QUOTE_THRESHOLD = 32; // 半径がこれ以上のときは「デブ扱いセリフ」に切り替え
+const DIET_PER_DASH = 3;        // ダッシュ1回で痩せる量（下限は難易度のPLAYER_RADIUS）
+const GRAZE_MARGIN = 22;        // 隕石にこの距離まで近づいてから離脱で「ギリギリアウト」成立
+const GRAZE_BONUS = 2;          // ギリギリアウト1回のボーナス点
+const GRAZE_QUOTE_COOLDOWN = 4; // ギリギリセリフの連発防止（秒）
 const DEATH_ANIM_DURATION = 1.5; // 吸い込まれ演出の長さ（秒）
 const BUBBLE_DURATION = 2.0;     // 吹き出し表示時間（秒）
 const DANGER_COOLDOWN = 5.0;     // 危険接近セリフの再発動制限（秒）
@@ -94,6 +103,22 @@ const QUOTES = {
   gameover: [
     'お、覚えてろよぉ…！',
     'こ、今回は引き分けだかんな！！',
+  ],
+  // 太っているとき（半径がFAT_QUOTE_THRESHOLD以上）のかけら収集セリフ
+  fatCollect: [
+    'だ、誰がデブだテメェ！！',
+    'た、食べても太らねぇんだかんな…！',
+  ],
+  // ダッシュで痩せたときのセリフ（痩せなかったときは dash を使う）
+  diet: [
+    'ダイエットだじょ！！',
+    'シェイプアップなのだわわ！！',
+  ],
+  // ギリギリアウト成立時のセリフ（連発防止クールダウンあり）
+  graze: [
+    'ギリギリアウトだじょ！！',
+    '今のはプロの避けだわわ！',
+    'へーんだ！！当たるかっつーの！',
   ],
 };
 
@@ -246,6 +271,11 @@ const AudioEngine = {
       case 'collect':
         this.tone({ freq: 880, dur: 0.09, type: 'sine', vol: 0.3 });
         this.tone({ freq: 1320, dur: 0.14, type: 'sine', vol: 0.3, when: 0.07 });
+        break;
+      case 'graze':
+        // ギリギリアウト：ヒヤッとする高速2連ブリップ
+        this.tone({ freq: 1560, dur: 0.05, type: 'triangle', vol: 0.22 });
+        this.tone({ freq: 2080, dur: 0.08, type: 'triangle', vol: 0.2, when: 0.05 });
         break;
       case 'dash':
         this.noise({ dur: 0.22, vol: 0.35, filterType: 'bandpass', freq: 2400, freqEnd: 300 });
@@ -528,6 +558,9 @@ function initGame() {
   game.dangerCooldown = 0;
   game.milestones = { 30: false, 60: false };
 
+  game.grazeCount = 0;         // ギリギリアウト成立回数
+  game.grazeQuoteCooldown = 0; // ギリギリセリフの連発防止タイマー
+
   game.shakeTime = 0; // 衝突時の画面シェイク
   game.shakeMag = 0;
 
@@ -580,6 +613,7 @@ function update(dt) {
   checkMilestones();
 
   if (game.shakeTime > 0) game.shakeTime -= dt;
+  if (game.grazeQuoteCooldown > 0) game.grazeQuoteCooldown -= dt;
 
   // ブラックホール拡大
   game.bh.r += P.BH_GROWTH_RATE * dt;
@@ -655,7 +689,10 @@ function updateDash(dt) {
       dash.cooldownLeft = P.DASH_COOLDOWN;
       dash.dirX = dx;
       dash.dirY = dy;
-      showBubble(pick(QUOTES.dash));
+      // ダイエットダッシュ：太っていたら少し痩せる（下限は難易度の基礎サイズ）
+      const beforeR = game.player.r;
+      game.player.r = Math.max(game.player.r - DIET_PER_DASH, P.PLAYER_RADIUS);
+      showBubble(pick(game.player.r < beforeR ? QUOTES.diet : QUOTES.dash));
       AudioEngine.se('dash');
       spawnParticles(game.player.x, game.player.y, {
         count: 10, colors: ['#8fd8ff', '#4fc8ff', '#ffffff'],
@@ -864,19 +901,22 @@ function checkMilestones() {
 }
 
 function currentScore() {
-  return Math.floor(game.elapsed) + game.starsCollected * P.STAR_BONUS;
+  return Math.floor(game.elapsed)
+    + game.starsCollected * P.STAR_BONUS
+    + game.grazeCount * GRAZE_BONUS;
 }
 
 function checkCollisions() {
   const p = game.player;
 
-  // かけら収集（円判定）
+  // かけら収集（円判定）→ 食べると太る（肥育システム）
   for (let i = game.stars.length - 1; i >= 0; i--) {
     const s = game.stars[i];
     if (dist(p.x, p.y, s.x, s.y) < p.r + s.r) {
       game.stars.splice(i, 1);
       game.starsCollected++;
-      showBubble(pick(QUOTES.collect));
+      p.r = Math.min(p.r + FATTEN_PER_STAR, PLAYER_RADIUS_MAX);
+      showBubble(pick(p.r >= FAT_QUOTE_THRESHOLD ? QUOTES.fatCollect : QUOTES.collect));
       AudioEngine.se('collect');
       spawnFloatText(s.x, s.y - 14, '+' + P.STAR_BONUS);
       spawnParticles(s.x, s.y, {
@@ -892,11 +932,30 @@ function checkCollisions() {
     return;
   }
 
-  // 隕石に衝突
+  // 隕石：衝突判定＋ギリギリアウト判定
   for (const m of game.meteors) {
-    if (dist(p.x, p.y, m.x, m.y) < p.r + m.r) {
+    const d = dist(p.x, p.y, m.x, m.y);
+    if (d < p.r + m.r) {
       beginDeath('meteor');
       return;
+    }
+    // ギリギリアウト：危険圏に入ってから当たらずに離脱できたら成立（隕石ごとに1回）
+    const grazeZone = p.r + m.r + GRAZE_MARGIN;
+    if (d < grazeZone) {
+      m.wasClose = true;
+    } else if (m.wasClose && !m.grazed) {
+      m.grazed = true;
+      game.grazeCount++;
+      AudioEngine.se('graze');
+      spawnFloatText((p.x + m.x) / 2, (p.y + m.y) / 2 - 10, '+' + GRAZE_BONUS + ' ギリギリアウト!!');
+      spawnParticles((p.x + m.x) / 2, (p.y + m.y) / 2, {
+        count: 6, colors: ['#c8f4ff', '#ffffff', '#ff8fc8'],
+        speedMin: 30, speedMax: 140, lifeMin: 0.2, lifeMax: 0.5, sizeMin: 1, sizeMax: 2.5,
+      });
+      if (game.grazeQuoteCooldown <= 0) {
+        showBubble(pick(QUOTES.graze));
+        game.grazeQuoteCooldown = GRAZE_QUOTE_COOLDOWN;
+      }
     }
   }
 }
@@ -988,6 +1047,7 @@ function finishGame() {
   document.getElementById('final-score').textContent = score;
   document.getElementById('final-time').textContent = game.elapsed.toFixed(1);
   document.getElementById('final-stars').textContent = game.starsCollected;
+  document.getElementById('final-graze').textContent = game.grazeCount;
   document.getElementById('final-highscore').textContent = Math.max(score, prevHigh);
   document.getElementById('new-record').classList.toggle('hidden', !isNewRecord);
 
@@ -998,11 +1058,12 @@ function finishGame() {
 }
 
 // ----- リザルトメーター演出（表示後にスーッと満ちる） -----
-const METER_TIME_FULL = 120; // 生存120秒でTIMEメーターが満タン
-const METER_STAR_FULL = 20;  // かけら20個でSTARメーターが満タン
+const METER_TIME_FULL = 120;  // 生存120秒でTIMEメーターが満タン
+const METER_STAR_FULL = 20;   // かけら20個でSTARメーターが満タン
+const METER_GRAZE_FULL = 15;  // ギリギリアウト15回でGIRIメーターが満タン
 
 function prepareResultMeters() {
-  for (const id of ['meter-time', 'meter-stars']) {
+  for (const id of ['meter-time', 'meter-stars', 'meter-graze']) {
     const el = document.getElementById(id);
     el.style.transition = 'none';
     el.style.width = '0%';
@@ -1014,10 +1075,12 @@ function prepareResultMeters() {
 function playResultMeters() {
   const timeRatio = Math.min(game.elapsed / METER_TIME_FULL, 1);
   const starRatio = Math.min(game.starsCollected / METER_STAR_FULL, 1);
+  const grazeRatio = Math.min(game.grazeCount / METER_GRAZE_FULL, 1);
   // 画面表示（display切替）の反映後に幅をセットしないとtransitionが効かない
   setTimeout(() => {
     document.getElementById('meter-time').style.width = (timeRatio * 100).toFixed(0) + '%';
     document.getElementById('meter-stars').style.width = (starRatio * 100).toFixed(0) + '%';
+    document.getElementById('meter-graze').style.width = (grazeRatio * 100).toFixed(0) + '%';
   }, 80);
 }
 
