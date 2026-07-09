@@ -17,7 +17,7 @@
 - `style.css`: ゲーム画面やガラスモルフィズムのスタイル。
 - `DESIGN_DOC.md`: ゲームデザイン、数式、アセット仕様をまとめた詳細設計図。
 - `assets/images/`: キャラクター（ロマ子様、ブタ野郎等）の差し替え用グラフィック画像。
-- `assets/pigs/`: 隕石ブタのバリエーション画像（`pig_01.png`〜`pig_14.png`、半角連番・透過PNG・正方形推奨）。存在する分だけランダムで使われ、1枚もなければ `assets/pig_meteor.png` にフォールバックする。枚数を変える場合は `game.js` の `PIG_VARIANT_COUNT` を合わせること。
+- `assets/pigs/`: 隕石ブタのバリエーション画像（`pig_01.png`〜`pig_14.png`、半角連番・透過PNG）。**現在はスマホでの描画負荷のため `game.js` の `PIG_VARIANT_COUNT = 0` で無効化中**（隕石は `assets/pig_meteor.png` の1種類）。復活させる場合は `PIG_VARIANT_COUNT` を14に戻す。その際は各画像を事前に小さなオフスクリーンcanvasへ縮小描画してから使う等の負荷対策を検討すること。
 
 ## 4. 開発・コーディング規約（AI用・厳守）
 - **Web Audio APIによるサウンド生成**:

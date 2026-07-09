@@ -387,7 +387,8 @@ imgMeteor.src = 'assets/pig_meteor.png';
 
 // ----- 隕石ブタのバリエーション画像（assets/pigs/pig_01.png 〜 pig_14.png） -----
 // 存在する分だけ使い、1枚もなければ従来の pig_meteor.png にフォールバックする
-const PIG_VARIANT_COUNT = 14;
+// ※スマホで描画が重くなったため0に設定して無効化中（2026-07-09）。復活させるときは14に戻す
+const PIG_VARIANT_COUNT = 0;
 const pigImages = [];
 for (let i = 1; i <= PIG_VARIANT_COUNT; i++) {
   const img = new Image();
