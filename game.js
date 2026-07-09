@@ -59,8 +59,9 @@ const RAMP = {
   SPAWN_MIN_RATIO: 0.3,  // 出現間隔は初期値のこの割合までしか縮まない
 };
 
-const METEOR_RADIUS_MIN = 10;
+const METEOR_RADIUS_MIN = 14;      // 小さすぎるブタ隕石が出ないよう下限を引き上げ
 const METEOR_RADIUS_MAX = 18;
+const METEOR_DRAW_SCALE = 1.25;    // ブタ画像の見た目だけ拡大（当たり判定はrのまま＝プレイヤー有利）
 const PLAYER_DRAW_SCALE = 1.5; // ロマ子様アイコンの見た目の拡大率（当たり判定はplayer.rで別管理）
 
 // ----- 肥育・ダイエット・ギリギリアウト（v3ゲームメカニクス） -----
@@ -1260,13 +1261,14 @@ function drawMeteors() {
 
     // バリエーション画像 → 共通ブタ画像 → ベクター描画 の順にフォールバック
     if (m.img && m.img.complete && m.img.naturalWidth !== 0) {
-      // 縦横比を保ったまま、長辺が当たり判定円の直径に収まるよう描画（非正方形画像対応）
+      // 縦横比を保ったまま描画。見た目だけMETEOR_DRAW_SCALE倍（非正方形画像対応）
       const iw = m.img.naturalWidth;
       const ih = m.img.naturalHeight;
-      const s = (m.r * 2) / Math.max(iw, ih);
+      const s = (m.r * 2 * METEOR_DRAW_SCALE) / Math.max(iw, ih);
       ctx.drawImage(m.img, -(iw * s) / 2, -(ih * s) / 2, iw * s, ih * s);
     } else if (imgMeteor.complete && imgMeteor.naturalWidth !== 0) {
-      ctx.drawImage(imgMeteor, -m.r, -m.r, m.r * 2, m.r * 2);
+      const dr = m.r * METEOR_DRAW_SCALE;
+      ctx.drawImage(imgMeteor, -dr, -dr, dr * 2, dr * 2);
     } else {
       // 従来のベクター描画フォールバック
       ctx.beginPath();
