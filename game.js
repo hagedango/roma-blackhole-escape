@@ -384,6 +384,20 @@ imgPlayer.src = 'assets/romaco_player.png';
 const imgMeteor = new Image();
 imgMeteor.src = 'assets/pig_meteor.png';
 
+// ----- 隕石ブタのバリエーション画像（assets/pigs/pig_01.png 〜 pig_14.png） -----
+// 存在する分だけ使い、1枚もなければ従来の pig_meteor.png にフォールバックする
+const PIG_VARIANT_COUNT = 14;
+const pigImages = [];
+for (let i = 1; i <= PIG_VARIANT_COUNT; i++) {
+  const img = new Image();
+  img.src = 'assets/pigs/pig_' + String(i).padStart(2, '0') + '.png';
+  pigImages.push(img);
+}
+
+function loadedPigImages() {
+  return pigImages.filter((img) => img.complete && img.naturalWidth > 0);
+}
+
 /* =========================================================
  * 全体の状態
  * ========================================================= */
@@ -793,10 +807,16 @@ function spawnMeteor() {
   const tx = randRange(W * 0.2, W * 0.8);
   const ty = randRange(H * 0.2, H * 0.8);
   const d = dist(x, y, tx, ty);
+
+  // ロード済みのブタ画像からランダムに1種を割り当て（この隕石の生涯同じ顔）
+  const pigs = loadedPigImages();
+  const img = pigs.length > 0 ? pigs[Math.floor(Math.random() * pigs.length)] : null;
+
   game.meteors.push({
     x, y, r,
     vx: ((tx - x) / d) * speed,
     vy: ((ty - y) / d) * speed,
+    img,
   });
 }
 
@@ -1238,7 +1258,14 @@ function drawMeteors() {
     const t = performance.now() / 1000;
     ctx.rotate(t * 0.5 + m.r);
 
-    if (imgMeteor.complete && imgMeteor.naturalWidth !== 0) {
+    // バリエーション画像 → 共通ブタ画像 → ベクター描画 の順にフォールバック
+    if (m.img && m.img.complete && m.img.naturalWidth !== 0) {
+      // 縦横比を保ったまま、長辺が当たり判定円の直径に収まるよう描画（非正方形画像対応）
+      const iw = m.img.naturalWidth;
+      const ih = m.img.naturalHeight;
+      const s = (m.r * 2) / Math.max(iw, ih);
+      ctx.drawImage(m.img, -(iw * s) / 2, -(ih * s) / 2, iw * s, ih * s);
+    } else if (imgMeteor.complete && imgMeteor.naturalWidth !== 0) {
       ctx.drawImage(imgMeteor, -m.r, -m.r, m.r * 2, m.r * 2);
     } else {
       // 従来のベクター描画フォールバック
